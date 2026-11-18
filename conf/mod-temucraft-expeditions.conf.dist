@@ -1,0 +1,138 @@
+[worldserver]
+
+########################################
+# mod-temucraft-expeditions
+########################################
+#
+#    Temucraft.Expeditions.Enable
+#        Description: Expeditions on top of dungeons, entered through the Expedition Master (creature 608805).
+#        Default:     1
+
+Temucraft.Expeditions.Enable = 1
+
+#
+#    Temucraft.Expeditions.AllDungeons
+#        Description: Every 5-player dungeon with an entrance and enough creature spots is an expedition. With 0 only the
+#                     rows in mod_temucraft_expedition are.
+#        Default:     1
+
+Temucraft.Expeditions.AllDungeons = 1
+
+#
+#    Temucraft.Expeditions.Phase
+#        Description: Phase mask the expedition party and its enemies use (the dungeon's own creatures are in phase 1).
+#                     Must not be 1. mod-temucraft-companions uses the same value (Temucraft.Companions.ExpeditionPhase).
+#        Default:     2
+
+Temucraft.Expeditions.Phase = 2
+
+#
+#    Temucraft.Expeditions.MinLevel
+#        Description: Lowest level for any expedition (an expedition row can ask for more).
+#        Default:     10
+
+Temucraft.Expeditions.MinLevel = 10
+
+#
+#    Temucraft.Expeditions.MaxPlayers
+#    Temucraft.Expeditions.GroupRange
+#        Description: Party size (1-5) and how close party members must stand to the leader to be taken along.
+#        Default:     5, 40
+
+Temucraft.Expeditions.MaxPlayers = 5
+Temucraft.Expeditions.GroupRange = 40
+
+#
+#    Temucraft.Expeditions.UnlockAllTiers
+#        Description: Offer every tier right away instead of one more per tier finished.
+#        Default:     0
+
+Temucraft.Expeditions.UnlockAllTiers = 0
+
+#
+#    Temucraft.Expeditions.Enemies
+#    Temucraft.Expeditions.MinSpots
+#    Temucraft.Expeditions.Variants
+#        Description: Enemies per expedition (plus the boss), the fewest creature spots a dungeon needs to be an expedition, and how
+#                     many daily story variants (different spots) an expedition has.
+#        Default:     16, 8, 3
+
+Temucraft.Expeditions.Enemies = 16
+Temucraft.Expeditions.MinSpots = 8
+Temucraft.Expeditions.Variants = 3
+
+#
+#    Temucraft.Expeditions.Health.Normal / Elite / Boss
+#    Temucraft.Expeditions.Damage.Normal / Elite / Boss
+#        Description: Enemy health and melee damage as multiples of a normal creature of the party's level (before the
+#                     tier and party size). Spells are scaled by how much the level raised the creature.
+#        Default:     1, 2.5, 8 and 1, 1.5, 2
+
+Temucraft.Expeditions.Health.Normal = 1.0
+Temucraft.Expeditions.Health.Elite = 2.5
+Temucraft.Expeditions.Health.Boss = 8.0
+Temucraft.Expeditions.Damage.Normal = 1.0
+Temucraft.Expeditions.Damage.Elite = 1.5
+Temucraft.Expeditions.Damage.Boss = 2.0
+
+#
+#    Temucraft.Expeditions.PerExtraPlayer.Health
+#    Temucraft.Expeditions.PerExtraPlayer.Damage
+#        Description: Added per player beyond the first (0.5 = +50% health each).
+#        Default:     0.5, 0.1
+
+Temucraft.Expeditions.PerExtraPlayer.Health = 0.5
+Temucraft.Expeditions.PerExtraPlayer.Damage = 0.1
+
+#
+#    Temucraft.Expeditions.DeathPenalty
+#        Description: Percent of the cache lost per death.
+#        Default:     20
+
+Temucraft.Expeditions.DeathPenalty = 20
+
+#
+#    Temucraft.Expeditions.Affix.FromTier
+#    Temucraft.Expeditions.Affix.SecondFromTier
+#        Description: Tier from which this week's first affix applies, and from which the second one also does.
+#        Default:     4, 8
+
+Temucraft.Expeditions.Affix.FromTier = 4
+Temucraft.Expeditions.Affix.SecondFromTier = 8
+
+#
+#    Temucraft.Expeditions.Rich.PerDay
+#        Description: How many expeditions are rich each day (the same for everyone). The first rich cache a
+#                     character opens each day also gives the rich reward.
+#        Default:     3
+
+Temucraft.Expeditions.Rich.PerDay = 3
+
+#
+#    Temucraft.Expeditions.Rich.Keys
+#        Description: The rich reward needs an Expedition Key. Keys are made from Cache Key Fragments, which
+#                     every cache gives (ShardsPerTier x the tier); every ShardsPerKey shards make a key. Shards and
+#                     keys are kept per character (no item, see .expedition status). 0 = no key needed.
+#        Default:     1, 100, 10
+
+Temucraft.Expeditions.Rich.Keys = 1
+Temucraft.Expeditions.Rich.ShardsPerKey = 100
+Temucraft.Expeditions.Rich.ShardsPerTier = 10
+
+#
+#    Temucraft.Expeditions.Rich.KeyItem
+#        Description: Use a real item as the key instead (used up when opening). 0 = use the shard keys above.
+#        Default:     0
+
+Temucraft.Expeditions.Rich.KeyItem = 0
+
+#
+#    Temucraft.Expeditions.Rich.GoldMultiplier
+#    Temucraft.Expeditions.Rich.Item
+#    Temucraft.Expeditions.Rich.ItemCount
+#        Description: Rich reward: the tier's gold times this, plus an item (0 = none).
+#        Default:     1.0, 0, 1
+
+Temucraft.Expeditions.Rich.GoldMultiplier = 1.0
+Temucraft.Expeditions.Rich.Item = 0
+Temucraft.Expeditions.Rich.ItemCount = 1
