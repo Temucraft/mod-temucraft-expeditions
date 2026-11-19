@@ -22,7 +22,7 @@ creatures, bosses and doors (phase 1) don't exist, and the expedition spawns its
   make a key (`.expedition status` shows them; a real key item can be used instead). The cache also takes you back to where you started.
 - **Affixes** change weekly, one from tier 4, two from tier 8: Hardened (enemies +25% health), Warlord's (boss +30%
   health, +15% damage), Brutal (+15% damage), Swarming (+30% enemies).
-- **Companions** from [mod-temucraft-companions](https://github.com/Temucraft/mod-temucraft-followers) come along when their activity mask has the expedition bit (4).
+- **Companions** from [mod-temucraft-followers](https://github.com/Temucraft/mod-temucraft-followers) come along when their activity mask has the expedition bit (4).
 - Walking into the dungeon through its normal portal is still the normal dungeon: only the Expedition Master starts an expedition.
 
 ## Your own expeditions and layouts
