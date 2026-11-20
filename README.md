@@ -23,6 +23,29 @@ creatures, bosses and doors (phase 1) don't exist, and the expedition spawns its
 - **Affixes** change weekly, one from tier 4, two from tier 8: Hardened (enemies +25% health), Warlord's (boss +30%
   health, +15% damage), Brutal (+15% damage), Swarming (+30% enemies).
 - **Companions** from [mod-temucraft-followers](https://github.com/Temucraft/mod-temucraft-followers) come along when their activity mask has the expedition bit (4).
+- **Wayfinder Coins** (item 608910) are the seasonal currency: every cache gives 5 per tier (fewer after deaths). The
+  **Wayfinder Quartermaster** (creature 608901, Odette Coinwell, place her next to the Expedition Master with
+  `.npc add 608901`) sells bounty maps, lures and emblems for them and looks after relics.
+- **Nemesis**: this season's nemesis is **Vorrath the Hollow Stalker** (creature 608900). From tier 6 each run has a 15%
+  chance that he ambushes the party once half the enemies are down; a **Hollow Lure** (608911, from caches or the
+  quartermaster) calls him into a run on purpose. Killing him is optional and gives coins and ledger points. He also has
+  his own **lair** (Shadowfang Keep by default) with two hidden tiers, **?** (opens after tier 8 of any expedition) and
+  **??** (after ?), where he is the boss. The Expedition Master offers the lair.
+- **Relics**: one **combat** and one **utility** relic per character, ranks 1 to 4. Unlock and upgrade them with
+  Wayfinder Coins (Relics at the Expedition Master or the quartermaster); caches and troves sometimes give one you do not
+  have. They only work inside an expedition. Combat: Emberfang Talisman (damage done), Bulwark Idol (damage taken),
+  Wardstone Shard (a shield that comes back), Verdant Seed (healing received). Utility: Trailblazer's Boots (speed),
+  Gilded Compass (more coins), Four-Leaf Token (double powers), Companion's Banner (companion damage).
+- **Expedition powers**: each run has 2 **Strange Disturbances** (pick one of 3 powers) and 2 **Wayfinder's Chests** (a
+  random power and a few coins) next to enemy spots. Powers stack during the run (Ember Surge, Stoneskin, Second Wind,
+  Fleet Foot, Barrier, Kindred Fury, Coin Sense) and are gone when you leave the expedition. A corpse run keeps them.
+- **Wayfinder's Ledger**: a seasonal track. Caches give 10 points per tier, the nemesis 50 and his lair more; each of the
+  10 ranks has a reward (coins, bounty maps, a lure, Frozen Orbs, Emblems of Frost, gold), given at once.
+- **Bounty maps** (608912): use one inside a run that is still going (one a week per character) and a **Hidden Trove**
+  (608904) appears next to the cache for you: coins, gold and a chance of a relic.
+- Relic and power effects are stock 3.3.5 auras (Twin Spire Blessing, Toughen, Lesser Warding Shield, Attuned to Nature,
+  Warming Up) with our own amounts set by the module, so no client patch is needed. The buff tooltip shows the stock
+  number; the real numbers are in the gossip menus and `.expedition powers`.
 - Walking into the dungeon through its normal portal is still the normal dungeon: only the Expedition Master starts an expedition.
 
 ## Your own expeditions and layouts
@@ -41,6 +64,10 @@ creatures, bosses and doors (phase 1) don't exist, and the expedition spawns its
 |---|---|---|
 | `.expedition leave` | everyone | leave the expedition, back to where you entered it |
 | `.expedition status` | everyone | tier, enemies defeated, deaths and lives |
+| `.expedition powers` | everyone | equipped relics and this run's powers, with their real numbers |
+| `.expedition relics` | everyone | every relic, its rank and effect |
+| `.expedition ledger` | everyone | Wayfinder's Ledger rank, points, next reward and coins |
+| `.expedition nemesis` | GM | call the nemesis into the run you are in |
 | `.expedition start <map> [tier]` | GM | start an expedition here without the Keeper (no level check) |
 | `.expedition list` | GM | all expeditions |
 | `.expedition reload` | admin | reload expeditions, layouts and tiers |
@@ -59,14 +86,40 @@ creatures, bosses and doors (phase 1) don't exist, and the expedition spawns its
 | world | `creature_template`, `creature_template_model`, `npc_text` | the Expedition Master (608805) and its texts |
 | world | `gameobject_template` | the Expedition Cache (608806) |
 | world | `module_string` | the module's texts |
+| world | `mod_temucraft_expedition_relic`, `mod_temucraft_expedition_power`, `mod_temucraft_expedition_ledger_rank`, `mod_temucraft_expedition_vendor`, `mod_temucraft_expedition_nemesis_tier` | new: relics, powers, ledger ranks and rewards, quartermaster wares, the lair's hidden tiers |
+| world | `creature_template`, `creature_template_model`, `gameobject_template`, `item_template`, `npc_text` | the nemesis (608900), the quartermaster (608901), Strange Disturbance (608902), Wayfinder's Chest (608903), Hidden Trove (608904), Wayfinder Coin (608910), Hollow Lure (608911), Wayfinder's Bounty Map (608912) |
 | characters | `mod_temucraft_expedition_progress`, `mod_temucraft_expedition_wallet` | new: best tier, completions and last rich day per character and expedition; key fragments and keys |
+| characters | `mod_temucraft_expedition_relic`, `mod_temucraft_expedition_character`, `mod_temucraft_expedition_ledger` | new: relics and ranks, the equipped pair and bounty week, ledger points per season |
+| auth | `rbac_permissions`, `rbac_linked_permissions` | GM command permissions 100501-100508 |
+
+The new SQL is in its own files (`temucraft_expeditions_features.sql`, `temucraft_expeditions_features_characters.sql`), so
+a server that already has the first files only applies the new ones. Every file can be run again safely.
+
+### Ids
+
+| Block | Used for |
+|---|---|
+| 608805, 608806 | Expedition Master, Expedition Cache |
+| 608900-608939 | this module's second block: 608900-608901 creatures, 608902-608904 game objects (and their `npc_text`), 608910-608912 items; 608905-608909 and 608913-608939 are free for later |
+
+No creature or game object is spawned by the SQL (place the NPCs with `.npc add`), so no GUIDs are used. No new spells:
+the item use spell is the stock Dummy Spell (18282) and the auras are stock spells; the module clears their dispel type
+in memory so enemies can not dispel them.
 
 It reads (never changes) `creature`, `creature_template` and `areatrigger_teleport` to find each dungeon's spots and
 entrance.
 
 ## Not done yet
 
-Nemesis bosses, relics, expedition powers, the Wayfinder's Ledger and a seasonal currency (see the design notes in the project).
+Gravestones and slayer enemies. A client addon window for relics and the ledger (everything works through gossip and
+commands).
+
+## Settings for the new features
+
+Each feature has its own switch and numbers in the config: `Temucraft.Expeditions.Season`, `Currency.*`, `Ledger.*`,
+`Vendor.Enable`, `Nemesis.*` (chance, tier, look, spells, lure, reward, lair map), `Relics.*`, `Powers.*` and `Bounty.*`.
+Relics, powers, ledger ranks, wares and the lair tiers are rows in the world tables above; `.expedition reload` reads
+them again. A new season: raise `Temucraft.Expeditions.Season`, change the ledger ranks and the nemesis if you like.
 
 ## Texts and translations
 

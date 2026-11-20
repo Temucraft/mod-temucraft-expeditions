@@ -26,8 +26,21 @@
  *   Hardened (enemies +25% health), Warlord's (boss +30% health, +15% damage), Brutal (+15% damage),
  *   Swarming (+30% enemies).
  * - Companions (mod-temucraft-companions) can come along when their activity mask has the expedition bit (4).
+ * - Nemesis (Temucraft.Expeditions.Nemesis.*): a seasonal boss (creature 608900) that can ambush a run from a tier on,
+ *   can be called with a Nemesis Lure (608911) found in caches, and has its own lair with two hidden tiers (? and ??,
+ *   `mod_temucraft_expedition_nemesis_tier`).
+ * - Relics (`mod_temucraft_expedition_relic`): one combat and one utility relic per character, ranks 1 to 4, bought and
+ *   upgraded with Wayfinder Coins (608910). Their effects are stock 3.3.5 auras with our own amounts, on the player or
+ *   the companion, and only inside an expedition.
+ * - Expedition powers (`mod_temucraft_expedition_power`): run buffs from Strange Disturbances (608902) and chests
+ *   (608903) inside; they stack during the run and are cleared when you leave it.
+ * - Wayfinder's Ledger (`mod_temucraft_expedition_ledger_rank`): a seasonal track, points from caches by tier and from the
+ *   nemesis, with a reward per rank. The Wayfinder Quartermaster (608901) sells for Wayfinder Coins
+ *   (`mod_temucraft_expedition_vendor`) and looks after relics.
+ * - Bounty maps (608912): one a week; used in a run, a Hidden Trove (608904) appears next to the cache.
  *
- * Commands: .expedition leave | status ; GM: .expedition start <map> <tier>, .expedition list ; admin: .expedition reload
+ * Commands: .expedition leave | status | powers | relics | ledger ; GM: .expedition start <map> <tier>, .expedition list,
+ * .expedition nemesis ; admin: .expedition reload
  * Text comes from module_string (module "mod-temucraft-expeditions"), with English built in as a fallback.
  */
 #include "Chat.h"
@@ -42,23 +55,35 @@
 #include "GameObjectScript.h"
 #include "GameTime.h"
 #include "Group.h"
+#include "Item.h"
+#include "ItemScript.h"
+#include "Mail.h"
 #include "Map.h"
 #include "MapMgr.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
 #include "Player.h"
 #include "PlayerScript.h"
+#include "Random.h"
 #include "ScriptMgr.h"
+#include "ScriptedCreature.h"
 #include "ScriptedGossip.h"
+#include "SpellAuraEffects.h"
+#include "SpellAuras.h"
 #include "SpellInfo.h"
+#include "Spell.h"
+#include "SpellMgr.h"
+#include "StringConvert.h"
 #include "StringFormat.h"
 #include "TemporarySummon.h"
 #include "TemucraftModuleText.h"
+#include "Tokenize.h"
 #include "UnitScript.h"
 #include "World.h"
 #include "WorldScript.h"
 #include <algorithm>
 #include <map>
+#include <mutex>
 #include <random>
 #include <set>
 #include <unordered_map>
@@ -71,13 +96,25 @@ namespace
     constexpr char const* MODULE = "mod-temucraft-expeditions";
     constexpr uint32 NPC_KEEPER = 608805, GO_CACHE = 608806;
     constexpr uint32 TEXT_KEEPER = 608805, TEXT_CACHE = 608806;
+    // 608900-608939 is this module's second id block (see the README)
+    constexpr uint32 NPC_QUARTERMASTER = 608901, GO_DISTURBANCE = 608902, GO_POWER_CHEST = 608903, GO_TROVE = 608904;
+    constexpr uint32 TEXT_QUARTERMASTER = 608901, TEXT_DISTURBANCE = 608902, TEXT_POWER_CHEST = 608903, TEXT_TROVE = 608904;
 
     enum Str : uint32
     {
         S_OFF = 1, S_RICH_HEAD, S_CATEGORY, S_AFFIXES, S_NO_AFFIXES, S_BACK, S_NEXT, S_EXPEDITION_LINE, S_TIER_LINE,
         S_TIER_LOCKED, S_LEVEL, S_LEADER, S_TOO_MANY, S_RAID, S_ENTER, S_BOSS_DOWN, S_DEATH, S_FAILED, S_OPEN, S_LEAVE,
         S_NOT_DONE, S_CLAIMED, S_REWARD_GOLD, S_REWARD_ITEM, S_RICH_REWARD, S_NEED_KEY, S_NOT_IN_EXPEDITION, S_STATUS,
-        S_NO_EXPEDITION, S_RICH_MARK, S_ENEMIES_LEFT, S_NOTHING_TODAY, S_TIER_UNLOCKED, S_BUSY_ELSEWHERE, S_SHARDS, S_KEY_MADE, S_NEED_VKEY, S_WALLET
+        S_NO_EXPEDITION, S_RICH_MARK, S_ENEMIES_LEFT, S_NOTHING_TODAY, S_TIER_UNLOCKED, S_BUSY_ELSEWHERE, S_SHARDS, S_KEY_MADE, S_NEED_VKEY, S_WALLET,
+        S_LAIR_LINE = 40, S_LAIR_LOCKED, S_LAIR_LOCKED2, S_NEMESIS_AMBUSH, S_NEMESIS_SUMMONED, S_NEMESIS_DOWN, S_LURE_NO,
+        S_POWER_GAIN, S_POWER_HEAD, S_POWER_LINE, S_NO_POWERS, S_DISTURBANCE_PICK, S_DISTURBANCE_USED, S_RELICS,
+        S_RELIC_EQUIPPED, S_RELIC_LINE, S_RELIC_LOCKED, S_RELIC_EQUIP, S_RELIC_UPGRADE, S_RELIC_UNLOCK, S_NOT_ENOUGH,
+        S_RELIC_UPGRADED, S_RELIC_FOUND, S_RELIC_NOW_EQUIPPED, S_LEDGER, S_LEDGER_RANK, S_LEDGER_POINTS, S_LEDGER_RANK_UP,
+        S_VENDOR, S_VENDOR_LINE, S_VENDOR_BOUGHT, S_VENDOR_NEED_RANK, S_VENDOR_CONFIRM, S_BOUNTY_USED, S_BOUNTY_WEEK,
+        S_BOUNTY_NO, S_TROVE_OPEN, S_TROVE_NOT_YOURS, S_TROVE_APPEARS, S_SLOT_COMBAT, S_SLOT_UTILITY, S_NONE,
+        S_POWER_CHEST_OPEN, S_LEDGER_NOTHING, S_MAIL_SUBJECT, S_MAIL_BODY, S_POWERS_HINT, S_LEDGER_DONE, S_RELIC_MAXED,
+        S_BAGS_FULL, S_LEDGER_NEXT, S_RELIC_EQUIPPED_MARK, S_RELIC_NOW_UNEQUIPPED, S_RELIC_UNEQUIP,
+        S_WALLET_COINS
     };
 
     char const* const CATEGORY_NAMES[] = { "Classic dungeons", "Burning Crusade dungeons", "Wrath of the Lich King dungeons",
@@ -85,7 +122,7 @@ namespace
     constexpr uint8 MAX_CATEGORY = 7;
     enum Affix : uint8 { AF_FORTIFIED = 1, AF_TYRANNICAL = 2, AF_BRUTAL = 4, AF_SWARMING = 8 };
     char const* const AFFIX_NAMES[] = { "Hardened", "Warlord's", "Brutal", "Swarming" };
-    enum Kind : uint8 { K_MOB = 0, K_ELITE = 1, K_BOSS = 2, K_CACHE = 3 };
+    enum Kind : uint8 { K_MOB = 0, K_ELITE = 1, K_BOSS = 2, K_CACHE = 3, K_NEMESIS = 4 };
 
     struct Settings
     {
@@ -99,7 +136,48 @@ namespace
         uint32 richItem = 0, richCount = 0;
         bool keys = true;
         uint32 shardsPerKey = 100, shardsPerTier = 10;
+
+        // seasonal currency and Wayfinder's Ledger
+        uint32 season = 1, coinItem = 608910, coinsPerTier = 5;
+        bool ledger = true, vendor = true;
+        uint32 ledgerPerTier = 10;
+        // nemesis
+        bool nemesis = true;
+        uint32 nemesisEntry = 608900, nemesisDisplay = 0, ambushFrom = 6, ambushChance = 15, ambushAt = 50;
+        float nemesisHealth = 1.5f, nemesisDamage = 1.2f;
+        std::vector<std::pair<uint32, uint32>> nemesisSpells;   // spell, seconds between casts
+        uint32 enrageSpell = 8599, enrageAt = 30, lureItem = 608911, lureChance = 10, nemesisCoins = 50, nemesisItem = 0,
+               nemesisCount = 1, nemesisPoints = 50, lairMap = 33, lairUnlock = 8;
+        // relics
+        bool relics = true;
+        uint32 relicChance = 10, absorbRenew = 20, maxTakenReduction = 50;
+        std::vector<uint32> companionEntries = { 608810, 608811, 608812 };
+        float companionRange = 100.0f;
+        // expedition powers
+        bool powers = true;
+        uint32 disturbances = 2, chests = 2, choices = 3, chestCoins = 3;
+        // bounty maps and Hidden Troves
+        bool bounty = true;
+        uint32 bountyItem = 608912, bountyChance = 25, troveCoins = 40, troveGold = 500000, troveItem = 0, troveCount = 1,
+               troveRelicChance = 25;
     } cfg;
+
+    // what a relic or an expedition power does; the amount is per rank or per stack
+    enum Effect : uint8 { E_NONE = 0, E_DAMAGE = 1, E_TAKEN = 2, E_ABSORB = 3, E_HEALING = 4, E_SPEED = 5, E_COINS = 6, E_LUCK = 7 };
+    enum Target : uint8 { T_PLAYER = 0, T_COMPANION = 1 };
+    enum Slot : uint8 { SLOT_COMBAT = 0, SLOT_UTILITY = 1 };
+    constexpr uint8 MAX_RELIC_RANK = 4;
+    struct Relic { uint32 id = 0; uint8 slot = 0, effect = 0, target = 0; uint32 spell = 0; std::string name, text; int32 value[MAX_RELIC_RANK] = {}; uint32 cost[MAX_RELIC_RANK] = {}; };
+    struct Power { uint32 id = 0; uint8 effect = 0, target = 0; uint32 spell = 0; std::string name, text; int32 value = 0; uint32 maxStacks = 0, weight = 1; };
+    struct LedgerRank { uint32 rank = 0, points = 0, item = 0, count = 0, coins = 0, gold = 0; };
+    struct VendorItem { uint32 id = 0, item = 0, count = 1, cost = 0, rank = 0; };
+    struct NemesisTier { uint32 hidden = 0, baseTier = 1, item = 0, count = 0, coins = 0, points = 0; float health = 1, damage = 1; };
+    struct CharState
+    {
+        uint32 combat = 0, utility = 0, bountyWeek = 0;
+        std::map<uint32, uint8> relics;   // relic -> rank
+        uint32 points = 0, rank = 0, nemesisKills = 0, lairBest = 0;
+    };
 
     struct Tier { float health = 1, damage = 1; uint32 lives = 0, gold = 0, item = 0, itemCount = 0, bonusItem = 0, bonusCount = 0; };
     struct Point { uint32 entry = 0; uint8 rank = 0; Position pos; };
@@ -116,6 +194,7 @@ namespace
         std::vector<Point> points;                        // sorted by distance from the entrance
         std::map<uint8, std::vector<HandSpawn>> hand;     // variant -> layout (variant 0 = every day)
     };
+    struct Party { uint32 count = 1; uint8 level = 1; };
     struct Run
     {
         uint32 map = 0, instance = 0, token = 0, tier = 1, lives = 0, deaths = 0, kills = 0, total = 0, started = 0;
@@ -124,9 +203,19 @@ namespace
         ObjectGuid boss, cache;
         std::vector<ObjectGuid> creatures;
         std::set<ObjectGuid::LowType> members, claimed;
+        // nemesis: lair = hidden tier (1 = ?, 2 = ??) when this is the nemesis lair; ambushAt = kills before the ambush
+        Party party;
+        uint8 lair = 0;
+        uint32 ambushAt = 0;
+        bool lureUsed = false;
+        ObjectGuid nemesis, trove;
+        // expedition powers: the objects that give them, who used which, and each member's stacks
+        std::vector<ObjectGuid> objects;
+        std::map<ObjectGuid, std::set<ObjectGuid::LowType>> used;
+        std::unordered_map<ObjectGuid::LowType, std::map<uint32, uint32>> powers;
+        std::set<ObjectGuid::LowType> troveFor, troveClaimed;
     };
-    struct Pending { uint32 map = 0, tier = 1, token = 0, at = 0; WorldLocation from; };
-    struct Party { uint32 count = 1; uint8 level = 1; };
+    struct Pending { uint32 map = 0, tier = 1, token = 0, at = 0; uint8 lair = 0; WorldLocation from; };
 
     std::map<uint32, Expedition> expeditions;                                // by map id
     std::map<uint32, Tier> tiers;                                  // by tier
@@ -138,6 +227,16 @@ namespace
     std::unordered_map<uint32, Party> parties;                     // by token
     std::unordered_map<ObjectGuid, std::pair<uint32, float>> enemies; // creature -> (instance, spell damage factor)
     uint32 nextToken = 1;
+
+    std::map<uint32, Relic> relicList;                             // by id
+    std::map<uint32, Power> powerList;                             // by id
+    std::map<uint32, LedgerRank> ledgerRanks;                      // by rank
+    std::vector<VendorItem> vendorItems;
+    std::map<uint32, NemesisTier> nemesisTiers;                    // by hidden tier (1, 2)
+    std::set<uint32> auraSpells, absorbSpells, takenSpells;        // every spell a relic or power uses
+    std::map<ObjectGuid::LowType, CharState> chars;                // loaded on first use, dropped at logout
+    std::mutex charsLock;
+    std::unordered_map<ObjectGuid, uint32> absorbAt;               // unit -> when its relic / power shield was last put up
 
     template<typename T>
     char const* Text(T who, uint32 id, char const* fallback) { return TemucraftModuleText(MODULE, who, id, fallback); }
@@ -178,6 +277,66 @@ namespace
         cfg.keys = sConfigMgr->GetOption<bool>("Temucraft.Expeditions.Rich.Keys", true);
         cfg.shardsPerKey = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("Temucraft.Expeditions.Rich.ShardsPerKey", 100));
         cfg.shardsPerTier = sConfigMgr->GetOption<uint32>("Temucraft.Expeditions.Rich.ShardsPerTier", 10);
+
+        cfg.season = sConfigMgr->GetOption<uint32>("Temucraft.Expeditions.Season", 1);
+        cfg.coinItem = sConfigMgr->GetOption<uint32>("Temucraft.Expeditions.Currency.Item", 608910);
+        cfg.coinsPerTier = sConfigMgr->GetOption<uint32>("Temucraft.Expeditions.Currency.PerTier", 5);
+        cfg.ledger = sConfigMgr->GetOption<bool>("Temucraft.Expeditions.Ledger.Enable", true);
+        cfg.ledgerPerTier = sConfigMgr->GetOption<uint32>("Temucraft.Expeditions.Ledger.PointsPerTier", 10);
+        cfg.vendor = sConfigMgr->GetOption<bool>("Temucraft.Expeditions.Vendor.Enable", true);
+
+        cfg.nemesis = sConfigMgr->GetOption<bool>("Temucraft.Expeditions.Nemesis.Enable", true);
+        cfg.nemesisEntry = sConfigMgr->GetOption<uint32>("Temucraft.Expeditions.Nemesis.Entry", 608900);
+        cfg.nemesisDisplay = sConfigMgr->GetOption<uint32>("Temucraft.Expeditions.Nemesis.DisplayId", 0);
+        cfg.ambushFrom = sConfigMgr->GetOption<uint32>("Temucraft.Expeditions.Nemesis.AmbushFromTier", 6);
+        cfg.ambushChance = std::min<uint32>(100, sConfigMgr->GetOption<uint32>("Temucraft.Expeditions.Nemesis.AmbushChance", 15));
+        cfg.ambushAt = std::clamp<uint32>(sConfigMgr->GetOption<uint32>("Temucraft.Expeditions.Nemesis.AmbushAtPercent", 50), 1, 100);
+        cfg.nemesisHealth = sConfigMgr->GetOption<float>("Temucraft.Expeditions.Nemesis.Health", 1.5f);
+        cfg.nemesisDamage = sConfigMgr->GetOption<float>("Temucraft.Expeditions.Nemesis.Damage", 1.2f);
+        cfg.nemesisSpells.clear();
+        std::string spells = sConfigMgr->GetOption<std::string>("Temucraft.Expeditions.Nemesis.Spells", "15496:8 17228:12 22884:30");
+        for (std::string_view entry : Acore::Tokenize(spells, ' ', false))
+        {
+            std::vector<std::string_view> parts = Acore::Tokenize(entry, ':', false);
+            Optional<uint32> spell = parts.empty() ? Optional<uint32>() : Acore::StringTo<uint32>(parts[0]);
+            Optional<uint32> every = parts.size() > 1 ? Acore::StringTo<uint32>(parts[1]) : Optional<uint32>(10);
+            if (spell && *spell && every) cfg.nemesisSpells.emplace_back(*spell, std::max<uint32>(2, *every));
+        }
+        cfg.enrageSpell = sConfigMgr->GetOption<uint32>("Temucraft.Expeditions.Nemesis.EnrageSpell", 8599);
+        cfg.enrageAt = sConfigMgr->GetOption<uint32>("Temucraft.Expeditions.Nemesis.EnrageAt", 30);
+        cfg.lureItem = sConfigMgr->GetOption<uint32>("Temucraft.Expeditions.Nemesis.LureItem", 608911);
+        cfg.lureChance = sConfigMgr->GetOption<uint32>("Temucraft.Expeditions.Nemesis.LureDropChance", 10);
+        cfg.nemesisCoins = sConfigMgr->GetOption<uint32>("Temucraft.Expeditions.Nemesis.Coins", 50);
+        cfg.nemesisItem = sConfigMgr->GetOption<uint32>("Temucraft.Expeditions.Nemesis.RewardItem", 0);
+        cfg.nemesisCount = sConfigMgr->GetOption<uint32>("Temucraft.Expeditions.Nemesis.RewardCount", 1);
+        cfg.nemesisPoints = sConfigMgr->GetOption<uint32>("Temucraft.Expeditions.Nemesis.LedgerPoints", 50);
+        cfg.lairMap = sConfigMgr->GetOption<uint32>("Temucraft.Expeditions.Nemesis.LairMap", 33);
+        cfg.lairUnlock = sConfigMgr->GetOption<uint32>("Temucraft.Expeditions.Nemesis.LairUnlockTier", 8);
+
+        cfg.relics = sConfigMgr->GetOption<bool>("Temucraft.Expeditions.Relics.Enable", true);
+        cfg.relicChance = sConfigMgr->GetOption<uint32>("Temucraft.Expeditions.Relics.DropChance", 10);
+        cfg.absorbRenew = std::max<uint32>(1, sConfigMgr->GetOption<uint32>("Temucraft.Expeditions.Relics.ShieldRenewSeconds", 20));
+        cfg.maxTakenReduction = std::min<uint32>(95, sConfigMgr->GetOption<uint32>("Temucraft.Expeditions.Relics.MaxDamageTakenReduction", 50));
+        cfg.companionEntries.clear();
+        std::string companions = sConfigMgr->GetOption<std::string>("Temucraft.Expeditions.Relics.CompanionEntries", "608810 608811 608812");
+        for (std::string_view entry : Acore::Tokenize(companions, ' ', false))
+            if (Optional<uint32> id = Acore::StringTo<uint32>(entry)) cfg.companionEntries.push_back(*id);
+        cfg.companionRange = sConfigMgr->GetOption<float>("Temucraft.Expeditions.Relics.CompanionRange", 100.0f);
+
+        cfg.powers = sConfigMgr->GetOption<bool>("Temucraft.Expeditions.Powers.Enable", true);
+        cfg.disturbances = sConfigMgr->GetOption<uint32>("Temucraft.Expeditions.Powers.Disturbances", 2);
+        cfg.chests = sConfigMgr->GetOption<uint32>("Temucraft.Expeditions.Powers.Chests", 2);
+        cfg.choices = std::clamp<uint32>(sConfigMgr->GetOption<uint32>("Temucraft.Expeditions.Powers.Choices", 3), 1, 10);
+        cfg.chestCoins = sConfigMgr->GetOption<uint32>("Temucraft.Expeditions.Powers.ChestCoins", 3);
+
+        cfg.bounty = sConfigMgr->GetOption<bool>("Temucraft.Expeditions.Bounty.Enable", true);
+        cfg.bountyItem = sConfigMgr->GetOption<uint32>("Temucraft.Expeditions.Bounty.Item", 608912);
+        cfg.bountyChance = sConfigMgr->GetOption<uint32>("Temucraft.Expeditions.Bounty.DropChance", 25);
+        cfg.troveCoins = sConfigMgr->GetOption<uint32>("Temucraft.Expeditions.Bounty.Trove.Coins", 40);
+        cfg.troveGold = sConfigMgr->GetOption<uint32>("Temucraft.Expeditions.Bounty.Trove.Gold", 500000);
+        cfg.troveItem = sConfigMgr->GetOption<uint32>("Temucraft.Expeditions.Bounty.Trove.Item", 0);
+        cfg.troveCount = sConfigMgr->GetOption<uint32>("Temucraft.Expeditions.Bounty.Trove.ItemCount", 1);
+        cfg.troveRelicChance = sConfigMgr->GetOption<uint32>("Temucraft.Expeditions.Bounty.Trove.RelicChance", 25);
     }
 
     uint8 AutoCategory(uint32 map)
@@ -193,6 +352,67 @@ namespace
         if (map < 530) return 0;
         if (map >= 1000 && map < 1200) return 5;
         return 6;
+    }
+
+    // relics, powers, ledger ranks, wares and the nemesis lair tiers
+    void LoadFeatureData()
+    {
+        relicList.clear(); powerList.clear(); ledgerRanks.clear(); vendorItems.clear(); nemesisTiers.clear();
+        auraSpells.clear(); absorbSpells.clear(); takenSpells.clear();
+        auto useSpell = [](uint32 spell, uint8 effect, char const* what, uint32 id) -> uint32
+        {
+            if (!spell) return 0;
+            SpellInfo const* info = sSpellMgr->GetSpellInfo(spell);
+            if (!info) { LOG_ERROR("module", "mod-temucraft-expeditions: {} {} uses spell {}, which does not exist", what, id, spell); return 0; }
+            // our amounts replace the stock ones; enemies must not dispel or steal them
+            const_cast<SpellInfo*>(info)->Dispel = DISPEL_NONE;
+            auraSpells.insert(spell);
+            if (effect == E_ABSORB) absorbSpells.insert(spell);
+            if (effect == E_TAKEN) takenSpells.insert(spell);
+            return spell;
+        };
+        if (QueryResult r = WorldDatabase.Query("SELECT id, slot, name, description, effect, target, spell, value1, value2, value3, value4, "
+            "unlock_cost, cost2, cost3, cost4 FROM mod_temucraft_expedition_relic WHERE enabled = 1"))
+            do
+            {
+                Field* f = r->Fetch(); Relic x;
+                x.id = f[0].Get<uint32>(); x.slot = f[1].Get<uint8>() ? SLOT_UTILITY : SLOT_COMBAT; x.name = f[2].Get<std::string>(); x.text = f[3].Get<std::string>();
+                x.effect = f[4].Get<uint8>(); x.target = f[5].Get<uint8>() ? T_COMPANION : T_PLAYER; x.spell = useSpell(f[6].Get<uint32>(), x.effect, "relic", x.id);
+                for (uint8 i = 0; i < MAX_RELIC_RANK; ++i) { x.value[i] = f[7 + i].Get<int32>(); x.cost[i] = f[11 + i].Get<uint32>(); }
+                relicList[x.id] = x;
+            } while (r->NextRow());
+        if (QueryResult r = WorldDatabase.Query("SELECT id, name, description, effect, target, spell, value, max_stacks, weight FROM mod_temucraft_expedition_power WHERE enabled = 1"))
+            do
+            {
+                Field* f = r->Fetch(); Power x;
+                x.id = f[0].Get<uint32>(); x.name = f[1].Get<std::string>(); x.text = f[2].Get<std::string>(); x.effect = f[3].Get<uint8>();
+                x.target = f[4].Get<uint8>() ? T_COMPANION : T_PLAYER; x.spell = useSpell(f[5].Get<uint32>(), x.effect, "power", x.id);
+                x.value = f[6].Get<int32>(); x.maxStacks = f[7].Get<uint32>(); x.weight = std::max<uint32>(1, f[8].Get<uint32>());
+                powerList[x.id] = x;
+            } while (r->NextRow());
+        if (QueryResult r = WorldDatabase.Query("SELECT `rank`, points, item, item_count, coins, gold FROM mod_temucraft_expedition_ledger_rank ORDER BY `rank`"))
+            do
+            {
+                Field* f = r->Fetch(); LedgerRank x;
+                x.rank = f[0].Get<uint32>(); x.points = f[1].Get<uint32>(); x.item = f[2].Get<uint32>(); x.count = f[3].Get<uint32>(); x.coins = f[4].Get<uint32>(); x.gold = f[5].Get<uint32>();
+                ledgerRanks[x.rank] = x;
+            } while (r->NextRow());
+        if (QueryResult r = WorldDatabase.Query("SELECT id, item, item_count, cost, ledger_rank FROM mod_temucraft_expedition_vendor WHERE enabled = 1 ORDER BY sort, id"))
+            do
+            {
+                Field* f = r->Fetch(); VendorItem x;
+                x.id = f[0].Get<uint32>(); x.item = f[1].Get<uint32>(); x.count = std::max<uint32>(1, f[2].Get<uint32>()); x.cost = f[3].Get<uint32>(); x.rank = f[4].Get<uint32>();
+                if (sObjectMgr->GetItemTemplate(x.item)) vendorItems.push_back(x);
+                else LOG_ERROR("module", "mod-temucraft-expeditions: ware {} sells item {}, which does not exist", x.id, x.item);
+            } while (r->NextRow());
+        if (QueryResult r = WorldDatabase.Query("SELECT hidden_tier, base_tier, health, damage, item, item_count, coins, ledger_points FROM mod_temucraft_expedition_nemesis_tier"))
+            do
+            {
+                Field* f = r->Fetch(); NemesisTier x;
+                x.hidden = f[0].Get<uint32>(); x.baseTier = f[1].Get<uint32>(); x.health = f[2].Get<float>(); x.damage = f[3].Get<float>();
+                x.item = f[4].Get<uint32>(); x.count = f[5].Get<uint32>(); x.coins = f[6].Get<uint32>(); x.points = f[7].Get<uint32>();
+                if (x.hidden == 1 || x.hidden == 2) nemesisTiers[x.hidden] = x;
+            } while (r->NextRow());
     }
 
     void LoadData()
@@ -287,7 +507,9 @@ namespace
             std::stable_sort(d.points.begin(), d.points.end(), [&e](Point const& a, Point const& b) { return e.GetExactDist(&a.pos) < e.GetExactDist(&b.pos); });
             ++it;
         }
-        LOG_INFO("module", "mod-temucraft-expeditions: {} expeditions, {} tiers", expeditions.size(), tiers.size());
+        LoadFeatureData();
+        LOG_INFO("module", "mod-temucraft-expeditions: {} expeditions, {} tiers, {} relics, {} powers, {} ledger ranks, {} wares",
+            expeditions.size(), tiers.size(), relicList.size(), powerList.size(), ledgerRanks.size(), vendorItems.size());
     }
 
     uint8 WeeklyAffixes(uint32 tier)
@@ -344,6 +566,293 @@ namespace
         return &it->second;
     }
 
+    // ------------------------------------------------------------------------------------------- character state
+    // relics, the equipped pair, the bounty week and this season's ledger, per character
+    CharState& State(Player* player)
+    {
+        ObjectGuid::LowType me = player->GetGUID().GetCounter();
+        std::lock_guard<std::mutex> guard(charsLock);
+        auto it = chars.find(me);
+        if (it != chars.end()) return it->second;
+        CharState& s = chars[me];
+        if (QueryResult r = CharacterDatabase.Query("SELECT combat_relic, utility_relic, bounty_week FROM mod_temucraft_expedition_character WHERE owner = {}", me))
+        {
+            s.combat = r->Fetch()[0].Get<uint32>(); s.utility = r->Fetch()[1].Get<uint32>(); s.bountyWeek = r->Fetch()[2].Get<uint32>();
+        }
+        if (QueryResult r = CharacterDatabase.Query("SELECT relic, `rank` FROM mod_temucraft_expedition_relic WHERE owner = {}", me))
+            do s.relics[r->Fetch()[0].Get<uint32>()] = std::min<uint8>(MAX_RELIC_RANK, r->Fetch()[1].Get<uint8>()); while (r->NextRow());
+        if (QueryResult r = CharacterDatabase.Query("SELECT points, `rank`, nemesis_kills, lair_best FROM mod_temucraft_expedition_ledger WHERE owner = {} AND season = {}", me, cfg.season))
+        {
+            Field* f = r->Fetch();
+            s.points = f[0].Get<uint32>(); s.rank = f[1].Get<uint32>(); s.nemesisKills = f[2].Get<uint32>(); s.lairBest = f[3].Get<uint32>();
+        }
+        return s;
+    }
+    void SaveChar(ObjectGuid::LowType me, CharState const& s)
+    {
+        CharacterDatabase.Execute("REPLACE INTO mod_temucraft_expedition_character (owner, combat_relic, utility_relic, bounty_week) VALUES ({}, {}, {}, {})",
+            me, s.combat, s.utility, s.bountyWeek);
+    }
+    void SaveRelic(ObjectGuid::LowType me, uint32 relic, uint8 rank)
+    {
+        CharacterDatabase.Execute("REPLACE INTO mod_temucraft_expedition_relic (owner, relic, `rank`) VALUES ({}, {}, {})", me, relic, rank);
+    }
+    void SaveLedger(ObjectGuid::LowType me, CharState const& s)
+    {
+        CharacterDatabase.Execute("REPLACE INTO mod_temucraft_expedition_ledger (owner, season, points, `rank`, nemesis_kills, lair_best) VALUES ({}, {}, {}, {}, {}, {})",
+            me, cfg.season, s.points, s.rank, s.nemesisKills, s.lairBest);
+    }
+
+    // ------------------------------------------------------------------------------------------- items and coins
+    std::string ItemName(uint32 item)
+    {
+        ItemTemplate const* t = sObjectMgr->GetItemTemplate(item);
+        return t ? t->Name1 : std::string("?");
+    }
+    std::string CoinName() { return sObjectMgr->GetItemTemplate(cfg.coinItem) ? ItemName(cfg.coinItem) : std::string("Wayfinder Coin"); }
+
+    // into the bags, and whatever does not fit by mail
+    void Give(Player* player, uint32 item, uint32 count, bool tell = true)
+    {
+        if (!item || !count || !sObjectMgr->GetItemTemplate(item)) return;
+        uint32 noSpace = 0;
+        ItemPosCountVec dest;
+        player->CanStoreNewItem(NULL_BAG, NULL_SLOT, dest, item, count, &noSpace);
+        uint32 stored = count - std::min(noSpace, count);
+        if (stored && !dest.empty())
+            if (Item* it = player->StoreNewItem(dest, item, true))
+                player->SendNewItem(it, stored, true, false);
+        uint32 rest = count - stored;
+        if (rest)
+        {
+            CharacterDatabaseTransaction trans = CharacterDatabase.BeginTransaction();
+            MailDraft draft(Text(player, S_MAIL_SUBJECT, "Expedition rewards"), Text(player, S_MAIL_BODY, "Your bags were full, so these came by mail."));
+            uint32 stack = std::max<uint32>(1, sObjectMgr->GetItemTemplate(item)->GetMaxStackSize());
+            for (uint32 left = rest; left;)
+            {
+                uint32 n = std::min(left, stack);
+                if (Item* it = Item::CreateItem(item, n, player)) { it->SaveToDB(trans); draft.AddItem(it); }
+                left -= n;
+            }
+            draft.SendMailTo(trans, MailReceiver(player), MailSender(MAIL_NORMAL, 0, MAIL_STATIONERY_GM));
+            CharacterDatabase.CommitTransaction(trans);
+            ChatHandler(player->GetSession()).SendSysMessage(Text(player, S_BAGS_FULL, "  Your bags are full: the rest comes by mail."));
+        }
+        if (tell) ChatHandler(player->GetSession()).PSendSysMessage(Text(player, S_REWARD_ITEM, "  Cache: {} x{}."), ItemName(item), count);
+    }
+    uint32 CoinCount(Player* player) { return cfg.coinItem ? player->GetItemCount(cfg.coinItem) : 0; }
+    bool Pay(Player* player, uint32 cost)
+    {
+        if (!cost) return true;
+        if (!cfg.coinItem || CoinCount(player) < cost)
+        {
+            ChatHandler(player->GetSession()).PSendSysMessage(Text(player, S_NOT_ENOUGH, "You need {} {} for that."), cost, CoinName());
+            return false;
+        }
+        player->DestroyItemCount(cfg.coinItem, cost, true);
+        return true;
+    }
+
+    // ------------------------------------------------------------------------------------------- relic and power effects
+    std::string EffectText(std::string const& text, int32 value)
+    {
+        return text.find("{}") != std::string::npos ? Acore::StringFormat(text, value) : text;
+    }
+    Relic const* RelicById(uint32 id) { auto it = relicList.find(id); return it == relicList.end() ? nullptr : &it->second; }
+    Power const* PowerById(uint32 id) { auto it = powerList.find(id); return it == powerList.end() ? nullptr : &it->second; }
+
+    // sum of an effect handled in code (coins, luck) from the equipped relics and this run's powers
+    int32 CodeEffect(Player* player, Run const* run, uint8 effect)
+    {
+        int32 total = 0;
+        if (cfg.relics)
+        {
+            CharState& s = State(player);
+            for (uint32 id : { s.combat, s.utility })
+                if (Relic const* r = RelicById(id))
+                {
+                    auto owned = s.relics.find(id);
+                    if (r->effect == effect && owned != s.relics.end() && owned->second) total += r->value[owned->second - 1];
+                }
+        }
+        if (cfg.powers && run)
+        {
+            auto it = run->powers.find(player->GetGUID().GetCounter());
+            if (it != run->powers.end())
+                for (auto const& [id, stacks] : it->second)
+                    if (Power const* p = PowerById(id)) if (p->effect == effect) total += p->value * int32(stacks);
+        }
+        return total;
+    }
+
+    Creature* FindCompanion(Player* player)
+    {
+        if (cfg.companionEntries.empty() || !player->IsInWorld()) return nullptr;
+        std::list<Creature*> list;
+        player->GetCreatureListWithEntryInGrid(list, cfg.companionEntries, cfg.companionRange);
+        for (Creature* c : list)
+            if (c->GetCreatorGUID() == player->GetGUID() && c->IsAlive()) return c;
+        return nullptr;
+    }
+
+    // put on, update or take off the relic / power auras the player cast on target, to match want (spell -> amount)
+    void Apply(Player* caster, Unit* target, std::map<uint32, int32> const& want)
+    {
+        if (!target || !target->IsInWorld()) return;
+        uint32 now = Now();
+        for (uint32 spell : auraSpells)
+        {
+            auto it = want.find(spell);
+            Aura* aura = target->GetAura(spell, caster->GetGUID());
+            if (it == want.end() || it->second == 0 || !target->IsAlive())
+            {
+                if (aura) target->RemoveAura(spell, caster->GetGUID());
+                continue;
+            }
+            bool absorb = absorbSpells.count(spell) != 0;
+            if (!aura)
+            {
+                // a used-up shield comes back after Relics.ShieldRenewSeconds
+                if (absorb) { auto at = absorbAt.find(target->GetGUID()); if (at != absorbAt.end() && now - at->second < cfg.absorbRenew) continue; }
+                aura = caster->AddAura(spell, target);
+                if (!aura) continue;
+                aura->SetMaxDuration(-1);
+                aura->SetDuration(-1);
+                if (AuraEffect* e = aura->GetEffect(EFFECT_0)) e->ChangeAmount(it->second);
+                if (absorb) absorbAt[target->GetGUID()] = now;
+            }
+            else if (!absorb)
+                if (AuraEffect* e = aura->GetEffect(EFFECT_0))
+                    if (e->GetAmount() != it->second) e->ChangeAmount(it->second);
+        }
+    }
+
+    // what the player's relics and this run's powers should put on the player and on the companion, now
+    void Refresh(Player* player)
+    {
+        if (auraSpells.empty() || !player->IsInWorld()) return;
+        Run* run = RunFor(player);
+        std::map<uint32, int32> self, companion;
+        if (run)
+        {
+            auto add = [player, &self, &companion](uint8 effect, uint8 target, uint32 spell, int32 value)
+            {
+                if (!spell || !value) return;
+                Unit* who = player;
+                if (target == T_COMPANION) who = FindCompanion(player);
+                int32 amount = effect == E_TAKEN ? -value : effect == E_ABSORB ? (who ? int32(who->GetMaxHealth() * uint32(std::max(0, value)) / 100) : 0) : value;
+                (target == T_COMPANION ? companion : self)[spell] += amount;
+            };
+            if (cfg.relics)
+            {
+                CharState& s = State(player);
+                for (uint32 id : { s.combat, s.utility })
+                    if (Relic const* r = RelicById(id))
+                    {
+                        auto owned = s.relics.find(id);
+                        if (owned != s.relics.end() && owned->second) add(r->effect, r->target, r->spell, r->value[owned->second - 1]);
+                    }
+            }
+            if (cfg.powers)
+            {
+                auto it = run->powers.find(player->GetGUID().GetCounter());
+                if (it != run->powers.end())
+                    for (auto const& [id, stacks] : it->second)
+                        if (Power const* p = PowerById(id)) add(p->effect, p->target, p->spell, p->value * int32(stacks));
+            }
+        }
+        // damage taken never drops below MaxDamageTakenReduction
+        for (auto* want : { &self, &companion })
+            for (auto& [spell, amount] : *want)
+                if (takenSpells.count(spell)) amount = std::max(amount, -int32(cfg.maxTakenReduction));
+        Apply(player, player, self);
+        if (Creature* c = FindCompanion(player)) Apply(player, c, companion);
+    }
+    // take every relic / power aura off (leaving an expedition, or logging in outside one)
+    void Strip(Player* player)
+    {
+        std::map<uint32, int32> none;
+        Apply(player, player, none);
+        if (Creature* c = FindCompanion(player)) Apply(player, c, none);
+    }
+
+    // ------------------------------------------------------------------------------------------- expedition powers
+    // n different powers, weighted, leaving out ones the player already has at their maximum; same seed, same offer
+    std::vector<uint32> PowerChoices(Run const& run, ObjectGuid::LowType me, uint32 seed, uint32 n)
+    {
+        std::vector<Power const*> pool;
+        auto mine = run.powers.find(me);
+        for (auto const& [id, p] : powerList)
+        {
+            uint32 have = 0;
+            if (mine != run.powers.end()) { auto h = mine->second.find(id); if (h != mine->second.end()) have = h->second; }
+            if (!p.maxStacks || have < p.maxStacks) pool.push_back(&p);
+        }
+        std::mt19937 rng(seed);
+        std::vector<uint32> out;
+        while (!pool.empty() && out.size() < n)
+        {
+            uint32 total = 0;
+            for (Power const* p : pool) total += p->weight;
+            uint32 pick = std::uniform_int_distribution<uint32>(0, total - 1)(rng);
+            for (size_t i = 0; i < pool.size(); ++i)
+            {
+                if (pick < pool[i]->weight) { out.push_back(pool[i]->id); pool.erase(pool.begin() + i); break; }
+                pick -= pool[i]->weight;
+            }
+        }
+        return out;
+    }
+
+    void GainPower(Player* player, Run& run, uint32 id)
+    {
+        Power const* p = PowerById(id);
+        if (!p) return;
+        uint32& stacks = run.powers[player->GetGUID().GetCounter()][id];
+        uint32 add = 1;
+        // the luck effect: a chance of one more stack
+        if (int32 luck = CodeEffect(player, &run, E_LUCK); luck > 0 && roll_chance_i(luck)) add = 2;
+        stacks = p->maxStacks ? std::min(p->maxStacks, stacks + add) : stacks + add;
+        ChatHandler(player->GetSession()).PSendSysMessage(Text(player, S_POWER_GAIN, "|cff66ccffExpedition power:|r {} x{} ({})."),
+            p->name, stacks, EffectText(p->text, p->value * int32(stacks)));
+        Refresh(player);
+    }
+
+    // a random relic the player has not found yet, at rank 1
+    void FindRelic(Player* player)
+    {
+        if (!cfg.relics) return;
+        CharState& s = State(player);
+        std::vector<uint32> missing;
+        for (auto const& [id, r] : relicList) if (!s.relics.count(id)) missing.push_back(id);
+        if (missing.empty()) return;
+        uint32 id = missing[urand(0, uint32(missing.size()) - 1)];
+        s.relics[id] = 1;
+        SaveRelic(player->GetGUID().GetCounter(), id, 1);
+        ChatHandler(player->GetSession()).PSendSysMessage(Text(player, S_RELIC_FOUND, "  |cffa335eeRelic found:|r {}!"), relicList[id].name);
+    }
+
+    // ------------------------------------------------------------------------------------------- Wayfinder's Ledger
+    void AddLedger(Player* player, uint32 points)
+    {
+        if (!cfg.ledger || !points) return;
+        CharState& s = State(player);
+        s.points += points;
+        ChatHandler h(player->GetSession());
+        h.PSendSysMessage(Text(player, S_LEDGER_POINTS, "  Wayfinder's Ledger: +{} points ({} in total)."), points, s.points);
+        for (auto const& [n, rank] : ledgerRanks)
+        {
+            if (n <= s.rank) continue;
+            if (rank.points > s.points) break;
+            s.rank = n;
+            h.PSendSysMessage(Text(player, S_LEDGER_RANK_UP, "  |cffffcc00Wayfinder's Ledger rank {}!|r"), n);
+            if (rank.gold) { player->ModifyMoney(rank.gold); h.PSendSysMessage(Text(player, S_REWARD_GOLD, "  Cache: {} gold."), rank.gold / 10000); }
+            Give(player, rank.item, rank.count);
+            Give(player, cfg.coinItem, rank.coins);
+        }
+        SaveLedger(player->GetGUID().GetCounter(), s);
+    }
+
     // ------------------------------------------------------------------------------------------- phases
     void EnterPhase(Player* player)
     {
@@ -369,12 +878,19 @@ namespace
         CreatureBaseStats const* orig = sObjectMgr->GetCreatureBaseStats(c->GetLevel(), t->unit_class);
         CreatureBaseStats const* s = sObjectMgr->GetCreatureBaseStats(party.level, t->unit_class);
         Tier const& tier = TierData(run.tier);
-        float health = (kind == K_BOSS ? cfg.healthBoss : kind == K_ELITE ? cfg.healthElite : cfg.healthMob) * tier.health * (1.0f + cfg.partyHealth * (party.count - 1));
+        bool boss = kind == K_BOSS || kind == K_NEMESIS;
+        float health = (boss ? cfg.healthBoss : kind == K_ELITE ? cfg.healthElite : cfg.healthMob) * tier.health * (1.0f + cfg.partyHealth * (party.count - 1));
         float damage = tier.damage * (1.0f + cfg.partyDamage * (party.count - 1));
-        if ((run.affixes & AF_FORTIFIED) && kind != K_BOSS) health *= 1.25f;
-        if ((run.affixes & AF_TYRANNICAL) && kind == K_BOSS) { health *= 1.3f; damage *= 1.15f; }
+        if ((run.affixes & AF_FORTIFIED) && !boss) health *= 1.25f;
+        if ((run.affixes & AF_TYRANNICAL) && boss) { health *= 1.3f; damage *= 1.15f; }
         if (run.affixes & AF_BRUTAL) damage *= 1.15f;
-        float weapon = damage * (kind == K_BOSS ? cfg.damageBoss : kind == K_ELITE ? cfg.damageElite : cfg.damageMob);
+        if (kind == K_NEMESIS)
+        {
+            health *= cfg.nemesisHealth; damage *= cfg.nemesisDamage;
+            auto lt = nemesisTiers.find(run.lair);
+            if (run.lair && lt != nemesisTiers.end()) { health *= lt->second.health; damage *= lt->second.damage; }
+        }
+        float weapon = damage * (boss ? cfg.damageBoss : kind == K_ELITE ? cfg.damageElite : cfg.damageMob);
 
         c->SetLevel(party.level);
         uint32 hp = std::max<uint32>(1, uint32(s->BaseHealth[EXPANSION_WRATH_OF_THE_LICH_KING] * health));
@@ -395,7 +911,7 @@ namespace
         // spells keep their own numbers, so they are scaled by how much stronger the level made the creature
         float before = orig ? orig->BaseDamage[std::min<uint32>(t->expansion, EXPANSION_WRATH_OF_THE_LICH_KING)] : 0.0f;
         float spell = before > 0.0f ? s->BaseDamage[EXPANSION_WRATH_OF_THE_LICH_KING] / before : 1.0f;
-        enemies[c->GetGUID()] = { run.instance, std::clamp(spell, 0.5f, 50.0f) * damage * (kind == K_BOSS ? 1.25f : 1.0f) };
+        enemies[c->GetGUID()] = { run.instance, std::clamp(spell, 0.5f, 50.0f) * damage * (boss ? 1.25f : 1.0f) };
     }
 
     Creature* Place(Map* map, Run& run, uint32 entry, Position const& pos, Kind kind, Party const& party)
@@ -405,6 +921,7 @@ namespace
         TempSummon* c = map->SummonCreature(entry, pos);
         if (!c) return nullptr;
         c->SetPhaseMask(cfg.phase, true);
+        if (kind == K_NEMESIS && cfg.nemesisDisplay) { c->SetDisplayId(cfg.nemesisDisplay); c->SetNativeDisplayId(cfg.nemesisDisplay); }
         Scale(c, kind, party, run);
         run.creatures.push_back(c->GetGUID());
         return c;
@@ -419,9 +936,47 @@ namespace
                 if (Creature* c = map->GetCreature(g)) c->DespawnOrUnsummon();
         }
         run.creatures.clear();
-        if (map && run.cache)
-            if (GameObject* go = map->GetGameObject(run.cache)) go->Delete();
+        if (map)
+        {
+            for (ObjectGuid const& g : run.objects)
+                if (GameObject* go = map->GetGameObject(g)) go->Delete();
+            for (ObjectGuid const& g : { run.cache, run.trove })
+                if (g) if (GameObject* go = map->GetGameObject(g)) go->Delete();
+        }
+        run.objects.clear();
         run.cache.Clear();
+        run.trove.Clear();
+    }
+
+    GameObject* PlaceObject(Map* map, Run& run, uint32 entry, Position const& pos)
+    {
+        if (!entry || !sObjectMgr->GetGameObjectTemplate(entry)) return nullptr;
+        map->LoadGrid(pos.GetPositionX(), pos.GetPositionY());
+        GameObject* go = map->SummonGameObject(entry, pos.GetPositionX(), pos.GetPositionY(), pos.GetPositionZ(), pos.GetOrientation(), 0, 0, 0, 0, 0);
+        if (!go) return nullptr;
+        go->SetPhaseMask(cfg.phase, true);
+        run.objects.push_back(go->GetGUID());
+        return go;
+    }
+
+    // Strange Disturbances and chests, next to some of the enemies' spots (not the boss)
+    void PlacePowerObjects(Map* map, Run& run, std::vector<Position> spots)
+    {
+        if (!cfg.powers || powerList.empty() || spots.empty()) return;
+        std::mt19937 rng(run.instance * 2654435761u + run.started);
+        std::shuffle(spots.begin(), spots.end(), rng);
+        size_t next = 0;
+        auto place = [&](uint32 entry, uint32 count)
+        {
+            for (uint32 i = 0; i < count && next < spots.size(); ++i, ++next)
+            {
+                Position p = spots[next];
+                p.RelocateOffset({ 3.0f * std::cos(p.GetOrientation()), 3.0f * std::sin(p.GetOrientation()), 0.0f, 0.0f });
+                PlaceObject(map, run, entry, p);
+            }
+        };
+        place(GO_DISTURBANCE, cfg.disturbances);
+        place(GO_POWER_CHEST, cfg.chests);
     }
 
     void Populate(Map* map, Run& run, Party const& party)
@@ -430,12 +985,21 @@ namespace
         uint32 variant = (Day() + d.map) % cfg.variants + 1;
         auto hand = d.hand.find(uint8(variant));
         if (hand == d.hand.end()) hand = d.hand.find(0);
+        std::vector<Position> spots;   // where powers can be found
+        // in the nemesis lair the nemesis takes the boss's place
+        bool lair = run.lair && cfg.nemesis && sObjectMgr->GetCreatureTemplate(cfg.nemesisEntry);
         if (hand != d.hand.end())
         {
             for (HandSpawn const& h : hand->second)
-                if (h.kind != K_CACHE)
-                    if (Creature* c = Place(map, run, h.entry, h.pos, Kind(h.kind), party))
-                        if (h.kind == K_BOSS) run.boss = c->GetGUID();
+            {
+                if (h.kind == K_CACHE) continue;
+                bool boss = h.kind == K_BOSS;
+                if (Creature* c = Place(map, run, boss && lair ? cfg.nemesisEntry : h.entry, h.pos, boss && lair ? K_NEMESIS : Kind(h.kind), party))
+                {
+                    if (boss) run.boss = c->GetGUID();
+                    else spots.push_back(h.pos);
+                }
+            }
         }
         else
         {
@@ -454,12 +1018,26 @@ namespace
                 size_t idx = std::min<size_t>(size_t(offset + step * i), pts.size() - 1);
                 if (idx == bossIdx) idx = idx ? idx - 1 : idx + 1;
                 if (!used.insert(idx).second || idx >= pts.size()) continue;
-                Place(map, run, pts[idx].entry, pts[idx].pos, pts[idx].rank >= 1 ? K_ELITE : K_MOB, party);
+                if (Place(map, run, pts[idx].entry, pts[idx].pos, pts[idx].rank >= 1 ? K_ELITE : K_MOB, party)) spots.push_back(pts[idx].pos);
             }
-            uint32 bossEntry = d.bossEntry ? d.bossEntry : pts[bossIdx].entry;
-            if (Creature* c = Place(map, run, bossEntry, pts[bossIdx].pos, K_BOSS, party)) run.boss = c->GetGUID();
+            uint32 bossEntry = lair ? cfg.nemesisEntry : d.bossEntry ? d.bossEntry : pts[bossIdx].entry;
+            if (Creature* c = Place(map, run, bossEntry, pts[bossIdx].pos, lair ? K_NEMESIS : K_BOSS, party)) run.boss = c->GetGUID();
         }
+        if (lair) run.nemesis = run.boss;
         run.total = uint32(run.creatures.size());
+        PlacePowerObjects(map, run, spots);
+    }
+
+    // the nemesis steps out next to a party member (ambush, lure or GM command)
+    Creature* SpawnNemesis(Map* map, Run& run, Unit* near)
+    {
+        if (!cfg.nemesis || run.nemesis || run.done || run.failed || !near) return nullptr;
+        Position pos = near->GetNearPosition(6.0f, float(rand_norm() * 2 * M_PI));
+        Creature* c = Place(map, run, cfg.nemesisEntry, pos, K_NEMESIS, run.party);
+        if (!c) return nullptr;
+        run.nemesis = c->GetGUID();
+        if (Unit* target = near->IsPlayer() ? near : nullptr) if (c->IsAIEnabled) c->AI()->AttackStart(target);
+        return c;
     }
 
     void StartRun(Player* player, Pending const& p)
@@ -472,9 +1050,14 @@ namespace
         run.map = p.map; run.instance = instance; run.token = p.token; run.tier = p.tier; run.started = Now();
         run.lives = TierData(p.tier).lives;
         run.affixes = WeeklyAffixes(p.tier);
-        run.rich = IsRich(p.map);
+        run.rich = IsRich(p.map) && !p.lair;
+        run.lair = p.lair;
         Party party = parties.count(p.token) ? parties[p.token] : Party{ 1, player->GetLevel() };
+        run.party = party;
         Populate(map, run, party);
+        // the nemesis may be lurking: from Nemesis.AmbushFromTier, with Nemesis.AmbushChance, after AmbushAtPercent of the enemies
+        if (cfg.nemesis && !run.lair && run.tier >= cfg.ambushFrom && roll_chance_i(int32(cfg.ambushChance)))
+            run.ambushAt = std::max<uint32>(1, run.total * cfg.ambushAt / 100);
     }
 
     // a player arrived on a map (teleport, login, corpse run)
@@ -495,17 +1078,22 @@ namespace
             EnterPhase(player);
             {
                 Expedition const& d = expeditions.at(run.map);
+                std::string tier = run.lair ? std::string(run.lair == 1 ? "?" : "??") : std::to_string(run.tier);
                 ChatHandler(player->GetSession()).PSendSysMessage(Text(player, S_ENTER, "|cffffcc00Expedition:|r {} - tier {}{}. Defeat the expedition boss deep inside; {} enemies await."),
-                    d.name, run.tier, run.affixes ? Acore::StringFormat(" ({})", AffixNames(run.affixes)) : std::string(), run.total);
+                    d.name, tier, run.affixes ? Acore::StringFormat(" ({})", AffixNames(run.affixes)) : std::string(), run.total);
+                if (cfg.powers && !run.objects.empty())
+                    ChatHandler(player->GetSession()).SendSysMessage(Text(player, S_POWERS_HINT, "Strange Disturbances and chests inside give expedition powers; they last until you leave."));
             }
+            Refresh(player);
             return;
         }
-        if (RunFor(player)) { EnterPhase(player); return; }
+        if (RunFor(player)) { EnterPhase(player); Refresh(player); return; }
         LeavePhase(player);
+        Strip(player);
     }
 
     // ------------------------------------------------------------------------------------------- entering
-    bool Enter(Player* player, uint32 mapId, uint32 tier, bool gm)
+    bool Enter(Player* player, uint32 mapId, uint32 tier, bool gm, uint8 lair = 0)
     {
         ChatHandler h(player->GetSession());
         auto it = expeditions.find(mapId);
@@ -548,7 +1136,7 @@ namespace
         parties[token] = info;
         for (Player* m : party)
         {
-            Pending p; p.map = mapId; p.tier = tier; p.token = token; p.at = Now();
+            Pending p; p.map = mapId; p.tier = tier; p.token = token; p.at = Now(); p.lair = lair;
             p.from.WorldRelocate(m->GetMapId(), m->GetPositionX(), m->GetPositionY(), m->GetPositionZ(), m->GetOrientation());
             pending[m->GetGUID().GetCounter()] = p;
             returnTo[m->GetGUID().GetCounter()] = p.from;
@@ -560,7 +1148,8 @@ namespace
     void Leave(Player* player)
     {
         ObjectGuid::LowType me = player->GetGUID().GetCounter();
-        if (Run* run = RunFor(player)) run->members.erase(me);
+        Strip(player);
+        if (Run* run = RunFor(player)) { run->members.erase(me); run->powers.erase(me); }
         LeavePhase(player);
         auto it = returnTo.find(me);
         if (it != returnTo.end()) { WorldLocation loc = it->second; returnTo.erase(it); player->TeleportTo(loc); }
@@ -582,6 +1171,53 @@ namespace
     }
 
     // ------------------------------------------------------------------------------------------- rewards
+    // the cache's share of the newer features: coins, ledger points, relic / lure / bounty map finds, the lair's reward
+    void FeatureRewards(Player* player, Run& run, uint32 keep)
+    {
+        if (cfg.coinItem && cfg.coinsPerTier)
+        {
+            uint32 coins = cfg.coinsPerTier * run.tier * keep / 100;
+            if (int32 bonus = CodeEffect(player, &run, E_COINS); bonus > 0) coins += coins * uint32(bonus) / 100;
+            Give(player, cfg.coinItem, coins);
+        }
+        uint32 points = cfg.ledgerPerTier * run.tier;
+        if (run.lair)
+        {
+            auto lt = nemesisTiers.find(run.lair);
+            if (lt != nemesisTiers.end())
+            {
+                Give(player, lt->second.item, lt->second.count);
+                Give(player, cfg.coinItem, lt->second.coins);
+                points += lt->second.points;
+            }
+            CharState& s = State(player);
+            ++s.nemesisKills;
+            s.lairBest = std::max<uint32>(s.lairBest, run.lair);
+            SaveLedger(player->GetGUID().GetCounter(), s);
+        }
+        AddLedger(player, points);
+        if (cfg.relics && roll_chance_i(int32(cfg.relicChance))) FindRelic(player);
+        if (cfg.nemesis && cfg.lureItem && !run.lair && roll_chance_i(int32(cfg.lureChance))) Give(player, cfg.lureItem, 1);
+        if (cfg.bounty && cfg.bountyItem && !player->HasItemCount(cfg.bountyItem, 1, true) && roll_chance_i(int32(cfg.bountyChance)))
+            Give(player, cfg.bountyItem, 1);
+    }
+
+    // the nemesis fell in an ordinary run (ambush or lure): every member on the map gets the nemesis reward
+    void NemesisDown(Map* map, Run& run, Creature* nemesis)
+    {
+        map->DoForAllPlayers([&run, nemesis](Player* p)
+        {
+            if (!run.members.count(p->GetGUID().GetCounter())) return;
+            ChatHandler(p->GetSession()).PSendSysMessage(Text(p, S_NEMESIS_DOWN, "|cffffcc00Nemesis defeated:|r {} falls."), nemesis->GetName());
+            Give(p, cfg.coinItem, cfg.nemesisCoins);
+            Give(p, cfg.nemesisItem, cfg.nemesisCount);
+            CharState& s = State(p);
+            ++s.nemesisKills;
+            SaveLedger(p->GetGUID().GetCounter(), s);
+            AddLedger(p, cfg.nemesisPoints);
+        });
+    }
+
     void Reward(Player* player, Run& run)
     {
         ChatHandler h(player->GetSession());
@@ -638,6 +1274,8 @@ namespace
             h.PSendSysMessage(Text(player, S_SHARDS, "  Cache Key Fragments: +{} ({}/{})."), cfg.shardsPerTier * run.tier, shards, cfg.shardsPerKey);
             if (made) h.PSendSysMessage(Text(player, S_KEY_MADE, "  You restore a Cache Key! Keys: {}."), keys + made);
         }
+        FeatureRewards(player, run, keep);
+        if (run.lair) return;   // the lair has its own two tiers; it does not open tiers of the dungeon it is in
         uint32 best = BestTier(player, run.map);
         CharacterDatabase.Execute("INSERT INTO mod_temucraft_expedition_progress (owner, map, best_tier, completions, rich_day) VALUES ({}, {}, {}, 1, 0) "
             "ON DUPLICATE KEY UPDATE best_tier = GREATEST(best_tier, VALUES(best_tier)), completions = completions + 1", me, run.map, run.tier);
@@ -653,10 +1291,23 @@ namespace
             go->SetPhaseMask(cfg.phase, true);
             run.cache = go->GetGUID();
         }
-        boss->GetMap()->DoForAllPlayers([&run](Player* p)
+        // someone followed a bounty map: the Hidden Trove stands next to the cache
+        bool trove = false;
+        if (cfg.bounty && !run.troveFor.empty())
         {
-            if (run.members.count(p->GetGUID().GetCounter()))
-                ChatHandler(p->GetSession()).SendSysMessage(Text(p, S_BOSS_DOWN, "|cffffcc00Expedition complete!|r Open the Expedition Cache for your rewards."));
+            Position p = boss->GetNearPosition(4.0f, boss->GetOrientation() + float(M_PI / 2));
+            if (GameObject* go = boss->SummonGameObject(GO_TROVE, p.GetPositionX(), p.GetPositionY(), p.GetPositionZ(), boss->GetOrientation(), 0, 0, 0, 0, 3600, true, GO_SUMMON_TIMED_DESPAWN))
+            {
+                go->SetPhaseMask(cfg.phase, true);
+                run.trove = go->GetGUID();
+                trove = true;
+            }
+        }
+        boss->GetMap()->DoForAllPlayers([&run, trove](Player* p)
+        {
+            if (!run.members.count(p->GetGUID().GetCounter())) return;
+            ChatHandler(p->GetSession()).SendSysMessage(Text(p, S_BOSS_DOWN, "|cffffcc00Expedition complete!|r Open the Expedition Cache for your rewards."));
+            if (trove) ChatHandler(p->GetSession()).SendSysMessage(Text(p, S_TROVE_APPEARS, "|cffffcc00A Hidden Trove appears!|r"));
         });
     }
 
@@ -681,6 +1332,8 @@ namespace
     };
     constexpr uint32 PAGE = 14;
 
+    void AddFeatureLines(Player* player);
+
     void ShowMain(Player* player, Creature* keeper)
     {
         ClearGossipMenuFor(player);
@@ -694,6 +1347,7 @@ namespace
         uint8 affixes = WeeklyAffixes(std::max<uint32>(cfg.affixSecond, cfg.affixFrom));
         AddGossipItemFor(player, GOSSIP_ICON_CHAT, affixes ? Acore::StringFormat(Text(player, S_AFFIXES, "This week's affixes: {} (from tier {}, both from tier {})"), AffixNames(affixes), cfg.affixFrom, cfg.affixSecond)
             : std::string(Text(player, S_NO_AFFIXES, "No affixes this week.")), GOSSIP_SENDER_MAIN, A_MAIN);
+        AddFeatureLines(player);
         SendGossipMenuFor(player, TEXT_KEEPER, keeper->GetGUID());
     }
 
@@ -748,6 +1402,235 @@ namespace
         SendGossipMenuFor(player, TEXT_KEEPER, keeper->GetGUID());
     }
 
+    // ------------------------------------------------------------------------------------------- relics, ledger, wares, lair (gossip)
+    enum FeatureActions : uint32
+    {
+        A_RELICS = 5, A_LEDGER = 6, A_VENDOR = 7,
+        A_LAIR_BASE = 4000,            // + hidden tier (1, 2)
+        A_RELIC_VIEW_BASE = 10000,     // + relic id (below 10000)
+        A_RELIC_EQUIP_BASE = 20000,
+        A_RELIC_UPGRADE_BASE = 30000,
+        A_RELIC_UNEQUIP_BASE = 40000,
+        A_BUY_BASE = 50000             // + ware index
+    };
+
+    std::string NemesisName()
+    {
+        CreatureTemplate const* t = sObjectMgr->GetCreatureTemplate(cfg.nemesisEntry);
+        return t ? t->Name : std::string("The Nemesis");
+    }
+    std::string HiddenTierName(uint32 n) { return n == 1 ? "?" : "??"; }
+    uint32 BestTierAnywhere(Player* player)
+    {
+        if (QueryResult r = CharacterDatabase.Query("SELECT COALESCE(MAX(best_tier), 0) FROM mod_temucraft_expedition_progress WHERE owner = {}", player->GetGUID().GetCounter()))
+            return r->Fetch()[0].Get<uint32>();
+        return 0;
+    }
+    bool LairOpen() { return cfg.nemesis && !nemesisTiers.empty() && expeditions.count(cfg.lairMap) && sObjectMgr->GetCreatureTemplate(cfg.nemesisEntry); }
+    bool LairUnlocked(Player* player, uint32 n)
+    {
+        if (cfg.unlockAll) return true;
+        return n == 1 ? BestTierAnywhere(player) >= cfg.lairUnlock : State(player).lairBest >= n - 1;
+    }
+
+    void AddFeatureLines(Player* player)
+    {
+        if (LairOpen())
+            for (auto const& [n, t] : nemesisTiers)
+            {
+                if (LairUnlocked(player, n))
+                    AddGossipItemFor(player, GOSSIP_ICON_BATTLE, Acore::StringFormat(Text(player, S_LAIR_LINE, "{}'s Lair - tier {}"), NemesisName(), HiddenTierName(n)),
+                        GOSSIP_SENDER_MAIN, A_LAIR_BASE + n);
+                else if (n == 1)
+                    AddGossipItemFor(player, GOSSIP_ICON_CHAT, Acore::StringFormat(Text(player, S_LAIR_LOCKED, "{}'s Lair - tier ?: finish tier {} of any expedition first"),
+                        NemesisName(), cfg.lairUnlock), GOSSIP_SENDER_MAIN, A_NOOP);
+                else
+                    AddGossipItemFor(player, GOSSIP_ICON_CHAT, Acore::StringFormat(Text(player, S_LAIR_LOCKED2, "{}'s Lair - tier ??: defeat tier ? first"), NemesisName()),
+                        GOSSIP_SENDER_MAIN, A_NOOP);
+            }
+        if (cfg.relics && !relicList.empty())
+            AddGossipItemFor(player, GOSSIP_ICON_INTERACT_1, Text(player, S_RELICS, "Relics"), GOSSIP_SENDER_MAIN, A_RELICS);
+        if (cfg.ledger && !ledgerRanks.empty())
+        {
+            CharState& s = State(player);
+            AddGossipItemFor(player, GOSSIP_ICON_TRAINER, Acore::StringFormat(Text(player, S_LEDGER, "Wayfinder's Ledger (season {}): rank {}, {} points"), cfg.season, s.rank, s.points),
+                GOSSIP_SENDER_MAIN, A_LEDGER);
+        }
+        if (cfg.coinItem && sObjectMgr->GetItemTemplate(cfg.coinItem))
+            AddGossipItemFor(player, GOSSIP_ICON_MONEY_BAG, Acore::StringFormat(Text(player, S_WALLET_COINS, "{}: {}"), CoinName(), CoinCount(player)), GOSSIP_SENDER_MAIN, A_NOOP);
+    }
+
+    std::string SlotName(Player* player, uint8 slot) { return slot == SLOT_UTILITY ? Text(player, S_SLOT_UTILITY, "utility") : Text(player, S_SLOT_COMBAT, "combat"); }
+    std::string RelicName(Player* player, uint32 id) { Relic const* r = RelicById(id); return r ? r->name : std::string(Text(player, S_NONE, "none")); }
+
+    void ShowRelics(Player* player, ObjectGuid source, uint32 textId)
+    {
+        ClearGossipMenuFor(player);
+        CharState& s = State(player);
+        AddGossipItemFor(player, GOSSIP_ICON_CHAT, Acore::StringFormat(Text(player, S_RELIC_EQUIPPED, "Equipped: {} (combat), {} (utility)"),
+            RelicName(player, s.combat), RelicName(player, s.utility)), GOSSIP_SENDER_MAIN, A_RELICS);
+        uint32 shown = 0;
+        for (uint8 slot : { SLOT_COMBAT, SLOT_UTILITY })
+            for (auto const& [id, r] : relicList)
+            {
+                if (r.slot != slot || ++shown > 28) continue;
+                auto owned = s.relics.find(id);
+                if (owned != s.relics.end() && owned->second)
+                {
+                    bool on = s.combat == id || s.utility == id;
+                    AddGossipItemFor(player, GOSSIP_ICON_INTERACT_1, Acore::StringFormat(Text(player, S_RELIC_LINE, "[{}] {} - rank {}/{}: {}{}"), SlotName(player, slot), r.name,
+                        owned->second, MAX_RELIC_RANK, EffectText(r.text, r.value[owned->second - 1]), on ? std::string(Text(player, S_RELIC_EQUIPPED_MARK, " (equipped)")) : std::string()),
+                        GOSSIP_SENDER_MAIN, A_RELIC_VIEW_BASE + id);
+                }
+                else
+                    AddGossipItemFor(player, GOSSIP_ICON_CHAT, Acore::StringFormat(Text(player, S_RELIC_LOCKED, "[{}] {} - not found yet: {}"), SlotName(player, slot), r.name,
+                        EffectText(r.text, r.value[0])), GOSSIP_SENDER_MAIN, A_RELIC_VIEW_BASE + id);
+            }
+        AddGossipItemFor(player, GOSSIP_ICON_CHAT, Text(player, S_BACK, "Back"), GOSSIP_SENDER_MAIN, A_MAIN);
+        SendGossipMenuFor(player, textId, source);
+    }
+
+    void ShowRelic(Player* player, ObjectGuid source, uint32 textId, uint32 id)
+    {
+        Relic const* r = RelicById(id);
+        if (!r) { ShowRelics(player, source, textId); return; }
+        ClearGossipMenuFor(player);
+        CharState& s = State(player);
+        auto owned = s.relics.find(id);
+        uint8 rank = owned == s.relics.end() ? 0 : owned->second;
+        bool on = s.combat == id || s.utility == id;
+        if (rank)
+            AddGossipItemFor(player, GOSSIP_ICON_INTERACT_1, Acore::StringFormat(Text(player, S_RELIC_LINE, "[{}] {} - rank {}/{}: {}{}"), SlotName(player, r->slot), r->name,
+                rank, MAX_RELIC_RANK, EffectText(r->text, r->value[rank - 1]), on ? std::string(Text(player, S_RELIC_EQUIPPED_MARK, " (equipped)")) : std::string()),
+                GOSSIP_SENDER_MAIN, A_RELIC_VIEW_BASE + id);
+        if (rank && !on)
+            AddGossipItemFor(player, GOSSIP_ICON_INTERACT_1, Acore::StringFormat(Text(player, S_RELIC_EQUIP, "Equip {}"), r->name), GOSSIP_SENDER_MAIN, A_RELIC_EQUIP_BASE + id);
+        if (on)
+            AddGossipItemFor(player, GOSSIP_ICON_INTERACT_1, Acore::StringFormat(Text(player, S_RELIC_UNEQUIP, "Take off {}"), r->name), GOSSIP_SENDER_MAIN, A_RELIC_UNEQUIP_BASE + id);
+        if (rank >= MAX_RELIC_RANK)
+            AddGossipItemFor(player, GOSSIP_ICON_CHAT, Text(player, S_RELIC_MAXED, "This relic is at its highest rank."), GOSSIP_SENDER_MAIN, A_RELIC_VIEW_BASE + id);
+        else if (r->cost[rank] || rank)
+        {
+            uint32 cost = r->cost[rank];
+            std::string line = rank
+                ? Acore::StringFormat(Text(player, S_RELIC_UPGRADE, "Upgrade to rank {} ({}) for {} {}"), rank + 1, EffectText(r->text, r->value[rank]), cost, CoinName())
+                : Acore::StringFormat(Text(player, S_RELIC_UNLOCK, "Unlock rank 1 ({}) for {} {}"), EffectText(r->text, r->value[0]), cost, CoinName());
+            AddGossipItemFor(player, GOSSIP_ICON_MONEY_BAG, line, GOSSIP_SENDER_MAIN, A_RELIC_UPGRADE_BASE + id, line + "?", 0, false);
+        }
+        AddGossipItemFor(player, GOSSIP_ICON_CHAT, Text(player, S_BACK, "Back"), GOSSIP_SENDER_MAIN, A_RELICS);
+        SendGossipMenuFor(player, textId, source);
+    }
+
+    // relic actions; true when the action was one of them
+    bool RelicAction(Player* player, ObjectGuid source, uint32 textId, uint32 action)
+    {
+        if (action == A_RELICS) { ShowRelics(player, source, textId); return true; }
+        if (action < A_RELIC_VIEW_BASE || action >= A_BUY_BASE) return false;
+        uint32 base = action - action % 10000, id = action % 10000;
+        Relic const* r = RelicById(id);
+        if (!r || !cfg.relics) { ShowRelics(player, source, textId); return true; }
+        ObjectGuid::LowType me = player->GetGUID().GetCounter();
+        CharState& s = State(player);
+        uint8 rank = s.relics.count(id) ? s.relics[id] : 0;
+        uint32& slot = r->slot == SLOT_UTILITY ? s.utility : s.combat;
+        ChatHandler h(player->GetSession());
+        if (base == A_RELIC_EQUIP_BASE && rank)
+        {
+            slot = id;
+            SaveChar(me, s);
+            h.PSendSysMessage(Text(player, S_RELIC_NOW_EQUIPPED, "{} equipped in the {} slot."), r->name, SlotName(player, r->slot));
+            Refresh(player);
+        }
+        else if (base == A_RELIC_UNEQUIP_BASE && slot == id)
+        {
+            slot = 0;
+            SaveChar(me, s);
+            h.PSendSysMessage(Text(player, S_RELIC_NOW_UNEQUIPPED, "{} taken off."), r->name);
+            Refresh(player);
+        }
+        else if (base == A_RELIC_UPGRADE_BASE && rank < MAX_RELIC_RANK && (rank || r->cost[0]))
+        {
+            if (Pay(player, r->cost[rank]))
+            {
+                s.relics[id] = ++rank;
+                SaveRelic(me, id, rank);
+                if (rank == 1 && !slot) { slot = id; SaveChar(me, s); }   // a first relic in an empty slot goes on at once
+                h.PSendSysMessage(Text(player, S_RELIC_UPGRADED, "{} is now rank {}."), r->name, rank);
+                Refresh(player);
+            }
+        }
+        ShowRelic(player, source, textId, id);
+        return true;
+    }
+
+    std::string LedgerRewardText(Player* player, LedgerRank const& r)
+    {
+        std::string out;
+        auto add = [&out](std::string const& part) { if (!out.empty()) out += ", "; out += part; };
+        if (r.item && r.count) add(Acore::StringFormat("{} x{}", ItemName(r.item), r.count));
+        if (r.coins) add(Acore::StringFormat("{} {}", r.coins, CoinName()));
+        if (r.gold) add(Acore::StringFormat("{} gold", r.gold / 10000));
+        return out.empty() ? std::string(Text(player, S_LEDGER_NOTHING, "nothing")) : out;
+    }
+
+    void ShowLedger(Player* player, ObjectGuid source, uint32 textId)
+    {
+        ClearGossipMenuFor(player);
+        CharState& s = State(player);
+        auto next = ledgerRanks.upper_bound(s.rank);
+        std::string tail = next == ledgerRanks.end() ? std::string(Text(player, S_LEDGER_DONE, " - every rank reached"))
+            : Acore::StringFormat(Text(player, S_LEDGER_NEXT, " - next rank at {} points"), next->second.points);
+        AddGossipItemFor(player, GOSSIP_ICON_TRAINER, Acore::StringFormat(Text(player, S_LEDGER, "Wayfinder's Ledger (season {}): rank {}, {} points"), cfg.season, s.rank, s.points) + tail,
+            GOSSIP_SENDER_MAIN, A_LEDGER);
+        uint32 shown = 0;
+        for (auto const& [n, r] : ledgerRanks)
+        {
+            if (n + 2 < s.rank || ++shown > 20) continue;
+            AddGossipItemFor(player, n <= s.rank ? GOSSIP_ICON_CHAT : GOSSIP_ICON_MONEY_BAG, Acore::StringFormat(Text(player, S_LEDGER_RANK, "Rank {} at {} points: {}{}"), n, r.points,
+                LedgerRewardText(player, r), n <= s.rank ? " (done)" : ""), GOSSIP_SENDER_MAIN, A_LEDGER);
+        }
+        AddGossipItemFor(player, GOSSIP_ICON_CHAT, Text(player, S_BACK, "Back"), GOSSIP_SENDER_MAIN, A_MAIN);
+        SendGossipMenuFor(player, textId, source);
+    }
+
+    void ShowVendor(Player* player, ObjectGuid source, uint32 textId)
+    {
+        ClearGossipMenuFor(player);
+        if (cfg.coinItem && sObjectMgr->GetItemTemplate(cfg.coinItem))
+            AddGossipItemFor(player, GOSSIP_ICON_MONEY_BAG, Acore::StringFormat(Text(player, S_WALLET_COINS, "{}: {}"), CoinName(), CoinCount(player)), GOSSIP_SENDER_MAIN, A_VENDOR);
+        for (size_t i = 0; i < vendorItems.size() && i < 28; ++i)
+        {
+            VendorItem const& v = vendorItems[i];
+            std::string line = Acore::StringFormat(Text(player, S_VENDOR_LINE, "{} x{} - {} {}"), ItemName(v.item), v.count, v.cost, CoinName());
+            if (v.rank) line += Acore::StringFormat(Text(player, S_VENDOR_NEED_RANK, " (Ledger rank {})"), v.rank);
+            AddGossipItemFor(player, GOSSIP_ICON_VENDOR, line, GOSSIP_SENDER_MAIN, A_BUY_BASE + uint32(i),
+                Acore::StringFormat(Text(player, S_VENDOR_CONFIRM, "Buy {} x{} for {} {}?"), ItemName(v.item), v.count, v.cost, CoinName()), 0, false);
+        }
+        AddGossipItemFor(player, GOSSIP_ICON_CHAT, Text(player, S_BACK, "Back"), GOSSIP_SENDER_MAIN, A_MAIN);
+        SendGossipMenuFor(player, textId, source);
+    }
+
+    void Buy(Player* player, uint32 index)
+    {
+        if (!cfg.vendor || index >= vendorItems.size()) return;
+        VendorItem const& v = vendorItems[index];
+        ChatHandler h(player->GetSession());
+        if (v.rank && State(player).rank < v.rank)
+        {
+            h.PSendSysMessage(Text(player, S_VENDOR_NEED_RANK, " (Ledger rank {})"), v.rank);
+            return;
+        }
+        ItemPosCountVec dest;
+        if (player->CanStoreNewItem(NULL_BAG, NULL_SLOT, dest, v.item, v.count) != EQUIP_ERR_OK)
+        {
+            player->SendEquipError(EQUIP_ERR_INVENTORY_FULL, nullptr, nullptr, v.item);
+            return;
+        }
+        if (!Pay(player, v.cost)) return;
+        Give(player, v.item, v.count, false);
+        h.PSendSysMessage(Text(player, S_VENDOR_BOUGHT, "Bought {} x{}."), ItemName(v.item), v.count);
+    }
+
     class npc_temucraft_expedition_keeper : public CreatureScript
     {
     public:
@@ -765,6 +1648,17 @@ namespace
             if (!cfg.enable) { CloseGossipMenuFor(player); return true; }
             if (action == A_MAIN || action == A_NOOP) { ShowMain(player, creature); return true; }
             if (action == A_RICH) { ShowRich(player, creature); return true; }
+            if (action == A_LEDGER) { ShowLedger(player, creature->GetGUID(), TEXT_KEEPER); return true; }
+            if (RelicAction(player, creature->GetGUID(), TEXT_KEEPER, action)) return true;
+            if (action > A_LAIR_BASE && action <= A_LAIR_BASE + 2)
+            {
+                uint32 n = action - A_LAIR_BASE;
+                CloseGossipMenuFor(player);
+                auto t = nemesisTiers.find(n);
+                if (LairOpen() && t != nemesisTiers.end() && LairUnlocked(player, n) && tiers.count(t->second.baseTier))
+                    Enter(player, cfg.lairMap, t->second.baseTier, false, uint8(n));
+                return true;
+            }
             if (action >= A_EXPEDITION_BASE)
             {
                 if (expeditions.count(action - A_EXPEDITION_BASE)) ShowTiers(player, creature, action - A_EXPEDITION_BASE);
@@ -816,6 +1710,281 @@ namespace
         }
     };
 
+    // the Wayfinder Quartermaster: wares for Wayfinder Coins, relics and the ledger
+    class npc_temucraft_expedition_quartermaster : public CreatureScript
+    {
+    public:
+        npc_temucraft_expedition_quartermaster() : CreatureScript("npc_temucraft_expedition_quartermaster") { }
+
+        static void Main(Player* player, Creature* creature)
+        {
+            ClearGossipMenuFor(player);
+            if (cfg.vendor && !vendorItems.empty())
+                AddGossipItemFor(player, GOSSIP_ICON_VENDOR, Text(player, S_VENDOR, "Wayfinder Quartermaster wares"), GOSSIP_SENDER_MAIN, A_VENDOR);
+            if (cfg.relics && !relicList.empty())
+                AddGossipItemFor(player, GOSSIP_ICON_INTERACT_1, Text(player, S_RELICS, "Relics"), GOSSIP_SENDER_MAIN, A_RELICS);
+            if (cfg.ledger && !ledgerRanks.empty())
+            {
+                CharState& s = State(player);
+                AddGossipItemFor(player, GOSSIP_ICON_TRAINER, Acore::StringFormat(Text(player, S_LEDGER, "Wayfinder's Ledger (season {}): rank {}, {} points"), cfg.season, s.rank, s.points),
+                    GOSSIP_SENDER_MAIN, A_LEDGER);
+            }
+            if (cfg.coinItem && sObjectMgr->GetItemTemplate(cfg.coinItem))
+                AddGossipItemFor(player, GOSSIP_ICON_MONEY_BAG, Acore::StringFormat(Text(player, S_WALLET_COINS, "{}: {}"), CoinName(), CoinCount(player)), GOSSIP_SENDER_MAIN, A_MAIN);
+            SendGossipMenuFor(player, TEXT_QUARTERMASTER, creature->GetGUID());
+        }
+
+        bool OnGossipHello(Player* player, Creature* creature) override
+        {
+            if (!cfg.enable) { ChatHandler(player->GetSession()).SendSysMessage(Text(player, S_OFF, "Expeditions are closed.")); return true; }
+            Main(player, creature);
+            return true;
+        }
+
+        bool OnGossipSelect(Player* player, Creature* creature, uint32 /*sender*/, uint32 action) override
+        {
+            if (!cfg.enable) { CloseGossipMenuFor(player); return true; }
+            if (action == A_VENDOR) { ShowVendor(player, creature->GetGUID(), TEXT_QUARTERMASTER); return true; }
+            if (action == A_LEDGER) { ShowLedger(player, creature->GetGUID(), TEXT_QUARTERMASTER); return true; }
+            if (action >= A_BUY_BASE && action < A_EXPEDITION_BASE)
+            {
+                Buy(player, action - A_BUY_BASE);
+                ShowVendor(player, creature->GetGUID(), TEXT_QUARTERMASTER);
+                return true;
+            }
+            if (RelicAction(player, creature->GetGUID(), TEXT_QUARTERMASTER, action)) return true;
+            Main(player, creature);
+            return true;
+        }
+    };
+
+    // a Strange Disturbance: pick one of a few expedition powers, once per player
+    class go_temucraft_expedition_disturbance : public GameObjectScript
+    {
+    public:
+        go_temucraft_expedition_disturbance() : GameObjectScript("go_temucraft_expedition_disturbance") { }
+
+        static std::vector<uint32> Offer(Run const& run, Player* player, GameObject* go)
+        {
+            return PowerChoices(run, player->GetGUID().GetCounter(), go->GetGUID().GetCounter() * 7919u + player->GetGUID().GetCounter(), cfg.choices);
+        }
+
+        bool OnGossipHello(Player* player, GameObject* go) override
+        {
+            ClearGossipMenuFor(player);
+            Run* run = RunFor(player);
+            if (!run || !cfg.powers) { CloseGossipMenuFor(player); return true; }
+            if (run->used[go->GetGUID()].count(player->GetGUID().GetCounter()))
+                AddGossipItemFor(player, GOSSIP_ICON_CHAT, Text(player, S_DISTURBANCE_USED, "The disturbance has gone quiet for you."), GOSSIP_SENDER_MAIN, 0);
+            else
+                for (uint32 id : Offer(*run, player, go))
+                    if (Power const* p = PowerById(id))
+                        AddGossipItemFor(player, GOSSIP_ICON_INTERACT_1, Acore::StringFormat(Text(player, S_DISTURBANCE_PICK, "Take: {} - {}"), p->name, EffectText(p->text, p->value)),
+                            GOSSIP_SENDER_MAIN, id);
+            SendGossipMenuFor(player, TEXT_DISTURBANCE, go->GetGUID());
+            return true;
+        }
+
+        bool OnGossipSelect(Player* player, GameObject* go, uint32 /*sender*/, uint32 action) override
+        {
+            CloseGossipMenuFor(player);
+            Run* run = RunFor(player);
+            if (!run || !cfg.powers || !action) return true;
+            std::set<ObjectGuid::LowType>& used = run->used[go->GetGUID()];
+            if (used.count(player->GetGUID().GetCounter())) return true;
+            std::vector<uint32> offer = Offer(*run, player, go);
+            if (std::find(offer.begin(), offer.end(), action) == offer.end()) return true;
+            used.insert(player->GetGUID().GetCounter());
+            GainPower(player, *run, action);
+            return true;
+        }
+    };
+
+    // a chest inside: a random expedition power and a few coins, once per player
+    class go_temucraft_expedition_power_chest : public GameObjectScript
+    {
+    public:
+        go_temucraft_expedition_power_chest() : GameObjectScript("go_temucraft_expedition_power_chest") { }
+
+        bool OnGossipHello(Player* player, GameObject* go) override
+        {
+            ClearGossipMenuFor(player);
+            Run* run = RunFor(player);
+            if (!run || !cfg.powers) { CloseGossipMenuFor(player); return true; }
+            if (!run->used[go->GetGUID()].count(player->GetGUID().GetCounter()))
+                AddGossipItemFor(player, GOSSIP_ICON_MONEY_BAG, Text(player, S_POWER_CHEST_OPEN, "Open the chest"), GOSSIP_SENDER_MAIN, 1);
+            SendGossipMenuFor(player, TEXT_POWER_CHEST, go->GetGUID());
+            return true;
+        }
+
+        bool OnGossipSelect(Player* player, GameObject* go, uint32 /*sender*/, uint32 action) override
+        {
+            CloseGossipMenuFor(player);
+            Run* run = RunFor(player);
+            if (!run || !cfg.powers || action != 1) return true;
+            std::set<ObjectGuid::LowType>& used = run->used[go->GetGUID()];
+            if (!used.insert(player->GetGUID().GetCounter()).second) return true;
+            std::vector<uint32> pick = PowerChoices(*run, player->GetGUID().GetCounter(), urand(1, 0x7FFFFFFF), 1);
+            if (!pick.empty()) GainPower(player, *run, pick[0]);
+            Give(player, cfg.coinItem, cfg.chestCoins);
+            return true;
+        }
+    };
+
+    // the Hidden Trove of a bounty map: only for the players who used one in this run
+    class go_temucraft_expedition_trove : public GameObjectScript
+    {
+    public:
+        go_temucraft_expedition_trove() : GameObjectScript("go_temucraft_expedition_trove") { }
+
+        bool OnGossipHello(Player* player, GameObject* go) override
+        {
+            ClearGossipMenuFor(player);
+            Run* run = RunFor(player);
+            ObjectGuid::LowType me = player->GetGUID().GetCounter();
+            if (!run || !cfg.bounty) { CloseGossipMenuFor(player); return true; }
+            if (!run->troveFor.count(me)) ChatHandler(player->GetSession()).SendSysMessage(Text(player, S_TROVE_NOT_YOURS, "This trove was found with someone else's map."));
+            else if (!run->troveClaimed.count(me))
+                AddGossipItemFor(player, GOSSIP_ICON_MONEY_BAG, Text(player, S_TROVE_OPEN, "Open the Hidden Trove"), GOSSIP_SENDER_MAIN, 1);
+            SendGossipMenuFor(player, TEXT_TROVE, go->GetGUID());
+            return true;
+        }
+
+        bool OnGossipSelect(Player* player, GameObject* /*go*/, uint32 /*sender*/, uint32 action) override
+        {
+            CloseGossipMenuFor(player);
+            Run* run = RunFor(player);
+            ObjectGuid::LowType me = player->GetGUID().GetCounter();
+            if (!run || !cfg.bounty || action != 1 || !run->troveFor.count(me) || !run->troveClaimed.insert(me).second) return true;
+            if (cfg.troveGold)
+            {
+                player->ModifyMoney(cfg.troveGold);
+                ChatHandler(player->GetSession()).PSendSysMessage(Text(player, S_REWARD_GOLD, "  Cache: {} gold."), cfg.troveGold / 10000);
+            }
+            Give(player, cfg.coinItem, cfg.troveCoins);
+            Give(player, cfg.troveItem, cfg.troveCount);
+            if (roll_chance_i(int32(cfg.troveRelicChance))) FindRelic(player);
+            return true;
+        }
+    };
+
+    // the item's use spell is a dummy; the script does the work, then tells the client the cast is over
+    void EndItemUse(Player* player, Item* item)
+    {
+        if (!item) return;
+        ItemTemplate const* proto = item->GetTemplate();
+        if (proto && proto->Spells[0].SpellId)
+            if (SpellInfo const* info = sSpellMgr->GetSpellInfo(proto->Spells[0].SpellId))
+                Spell::SendCastResult(player, info, 0, SPELL_FAILED_DONT_REPORT);
+    }
+
+    // the Nemesis Lure: call the nemesis into the current run, once per run
+    class item_temucraft_expedition_lure : public ItemScript
+    {
+    public:
+        item_temucraft_expedition_lure() : ItemScript("item_temucraft_expedition_lure") { }
+
+        bool OnUse(Player* player, Item* item, SpellCastTargets const& /*targets*/) override
+        {
+            Run* run = RunFor(player);
+            if (!cfg.nemesis || !run || run->lair || run->done || run->failed || run->lureUsed || run->nemesis)
+            {
+                ChatHandler(player->GetSession()).SendSysMessage(Text(player, S_LURE_NO, "The lure only works inside an expedition that is still running, once per run, and not in the nemesis lair."));
+                EndItemUse(player, item);
+                return true;
+            }
+            EndItemUse(player, item);
+            Creature* n = SpawnNemesis(player->GetMap(), *run, player);
+            if (!n) return true;
+            run->lureUsed = true;
+            player->DestroyItemCount(item->GetEntry(), 1, true);
+            Run const& r = *run;
+            std::string name = n->GetName();
+            player->GetMap()->DoForAllPlayers([&r, &name](Player* p)
+            {
+                if (r.members.count(p->GetGUID().GetCounter()))
+                    ChatHandler(p->GetSession()).PSendSysMessage(Text(p, S_NEMESIS_SUMMONED, "|cffff3333The lure sounds. {} answers the call!|r"), name);
+            });
+            return true;
+        }
+    };
+
+    // the bounty map: once a week, makes a Hidden Trove appear when this run's boss falls
+    class item_temucraft_expedition_bounty : public ItemScript
+    {
+    public:
+        item_temucraft_expedition_bounty() : ItemScript("item_temucraft_expedition_bounty") { }
+
+        bool OnUse(Player* player, Item* item, SpellCastTargets const& /*targets*/) override
+        {
+            ChatHandler h(player->GetSession());
+            EndItemUse(player, item);
+            Run* run = RunFor(player);
+            ObjectGuid::LowType me = player->GetGUID().GetCounter();
+            if (!cfg.bounty || !run || run->done || run->failed || run->troveFor.count(me))
+            {
+                h.SendSysMessage(Text(player, S_BOUNTY_NO, "Use the bounty map inside an expedition that is still running."));
+                return true;
+            }
+            CharState& s = State(player);
+            if (s.bountyWeek == Week()) { h.SendSysMessage(Text(player, S_BOUNTY_WEEK, "You already followed a bounty map this week.")); return true; }
+            s.bountyWeek = Week();
+            SaveChar(me, s);
+            run->troveFor.insert(me);
+            player->DestroyItemCount(item->GetEntry(), 1, true);
+            h.SendSysMessage(Text(player, S_BOUNTY_USED, "The map shows a Hidden Trove in this expedition. It opens when the expedition boss falls."));
+            return true;
+        }
+    };
+
+    // the nemesis: melee, a few spells on timers (Nemesis.Spells) and an enrage at low health
+    class npc_temucraft_expedition_nemesis : public CreatureScript
+    {
+    public:
+        npc_temucraft_expedition_nemesis() : CreatureScript("npc_temucraft_expedition_nemesis") { }
+
+        struct npc_temucraft_expedition_nemesisAI : public ScriptedAI
+        {
+            npc_temucraft_expedition_nemesisAI(Creature* creature) : ScriptedAI(creature) { }
+
+            void Reset() override { events.Reset(); enraged = false; }
+
+            void JustEngagedWith(Unit* /*who*/) override
+            {
+                events.Reset();
+                for (size_t i = 0; i < cfg.nemesisSpells.size(); ++i)
+                    events.ScheduleEvent(uint32(i + 1), Milliseconds(cfg.nemesisSpells[i].second * 500), Milliseconds(cfg.nemesisSpells[i].second * 1000));
+            }
+
+            void UpdateAI(uint32 diff) override
+            {
+                if (!UpdateVictim()) return;
+                events.Update(diff);
+                if (!enraged && cfg.enrageSpell && cfg.enrageAt && me->HealthBelowPct(int32(cfg.enrageAt)))
+                {
+                    enraged = true;
+                    DoCastSelf(cfg.enrageSpell, true);
+                }
+                if (me->HasUnitState(UNIT_STATE_CASTING)) return;
+                while (uint32 e = events.ExecuteEvent())
+                {
+                    if (e > cfg.nemesisSpells.size()) continue;
+                    auto const& [spell, every] = cfg.nemesisSpells[e - 1];
+                    DoCastVictim(spell);
+                    events.ScheduleEvent(e, Milliseconds(every * 1000));
+                    if (me->HasUnitState(UNIT_STATE_CASTING)) return;
+                }
+                DoMeleeAttackIfReady();
+            }
+
+        private:
+            EventMap events;
+            bool enraged = false;
+        };
+
+        CreatureAI* GetAI(Creature* creature) const override { return new npc_temucraft_expedition_nemesisAI(creature); }
+    };
+
     // ------------------------------------------------------------------------------------------- hooks
     class temucraft_expeditions_player : public PlayerScript
     {
@@ -830,11 +1999,17 @@ namespace
             // the phase isn't saved; at login inside the instance Arrive() puts a member back in the expedition phase
             ObjectGuid::LowType me = player->GetGUID().GetCounter();
             pending.erase(me); viewing.erase(me); previousPhase.erase(me);
+            absorbAt.erase(player->GetGUID());
+            std::lock_guard<std::mutex> guard(charsLock);
+            chars.erase(me);
         }
         void OnPlayerDelete(ObjectGuid guid, uint32 /*accountId*/) override
         {
             CharacterDatabase.Execute("DELETE FROM mod_temucraft_expedition_progress WHERE owner = {}", guid.GetCounter());
             CharacterDatabase.Execute("DELETE FROM mod_temucraft_expedition_wallet WHERE owner = {}", guid.GetCounter());
+            CharacterDatabase.Execute("DELETE FROM mod_temucraft_expedition_relic WHERE owner = {}", guid.GetCounter());
+            CharacterDatabase.Execute("DELETE FROM mod_temucraft_expedition_character WHERE owner = {}", guid.GetCounter());
+            CharacterDatabase.Execute("DELETE FROM mod_temucraft_expedition_ledger WHERE owner = {}", guid.GetCounter());
         }
         void OnPlayerJustDied(Player* player) override
         {
@@ -873,7 +2048,7 @@ namespace
             float f = Factor(attacker);
             if (f != 1.0f) damage = uint32(damage * f);
         }
-        void OnUnitDeath(Unit* unit, Unit* /*killer*/) override
+        void OnUnitDeath(Unit* unit, Unit* killer) override
         {
             if (enemies.empty() || !unit || !unit->IsCreature()) return;
             auto it = enemies.find(unit->GetGUID());
@@ -883,8 +2058,23 @@ namespace
             auto r = runs.find(instance);
             if (r == runs.end() || r->second.failed) return;
             Run& run = r->second;
+            if (unit->GetGUID() == run.boss && !run.done) { ++run.kills; Complete(unit->ToCreature(), run); return; }
+            if (unit->GetGUID() == run.nemesis) { NemesisDown(unit->GetMap(), run, unit->ToCreature()); return; }
             ++run.kills;
-            if (unit->GetGUID() == run.boss && !run.done) Complete(unit->ToCreature(), run);
+            // the nemesis ambush, once enough enemies are down
+            if (run.ambushAt && !run.nemesis && !run.done && run.kills >= run.ambushAt)
+            {
+                run.ambushAt = 0;
+                Unit* near = killer && killer->GetCharmerOrOwnerPlayerOrPlayerItself() ? killer->GetCharmerOrOwnerPlayerOrPlayerItself() : nullptr;
+                if (!near)
+                    unit->GetMap()->DoForAllPlayers([&run, &near](Player* p) { if (!near && p->IsAlive() && run.members.count(p->GetGUID().GetCounter())) near = p; });
+                if (Creature* n = SpawnNemesis(unit->GetMap(), run, near))
+                    unit->GetMap()->DoForAllPlayers([&run, n](Player* p)
+                    {
+                        if (run.members.count(p->GetGUID().GetCounter()))
+                            ChatHandler(p->GetSession()).PSendSysMessage(Text(p, S_NEMESIS_AMBUSH, "|cffff3333{} ambushes you!|r Defeat it for a nemesis reward, or press on."), n->GetName());
+                    });
+            }
         }
     };
 
@@ -896,9 +2086,21 @@ namespace
         void OnStartup() override { LoadData(); }
         void OnUpdate(uint32 diff) override
         {
+            // relic and power auras: put back after a death, follow the companion, renew used-up shields
+            refresh += diff;
+            if (refresh >= 2000 && !auraSpells.empty())
+            {
+                refresh = 0;
+                for (auto& [instance, run] : runs)
+                    for (ObjectGuid::LowType m : run.members)
+                        if (Player* p = ObjectAccessor::FindPlayerByLowGUID(m))
+                            if (p->IsInWorld() && RunFor(p)) Refresh(p);
+            }
             timer += diff;
             if (timer < 60000) return;
             timer = 0;
+            for (auto it = absorbAt.begin(); it != absorbAt.end();)
+                it = Now() - it->second > 3600 ? absorbAt.erase(it) : std::next(it);
             // forget runs whose instance is gone, and teleports that never arrived
             for (auto it = runs.begin(); it != runs.end();)
             {
@@ -916,7 +2118,7 @@ namespace
                 it = it->first + 1000 < nextToken ? parties.erase(it) : std::next(it);
         }
     private:
-        uint32 timer = 0;
+        uint32 timer = 0, refresh = 0;
     };
 
     class temucraft_expeditions_commands : public CommandScript
@@ -937,6 +2139,10 @@ namespace
                 { "spot",   HandleSpot,   100505 /* SEC_GAMEMASTER -> RBAC */,    Console::No },
                 { "unspot", HandleUnspot, 100506 /* SEC_GAMEMASTER -> RBAC */,    Console::No },
                 { "spots",  HandleSpots,  100507 /* SEC_GAMEMASTER -> RBAC */,    Console::No },
+                { "powers", HandlePowers, SEC_PLAYER,        Console::No },
+                { "relics", HandleRelics, SEC_PLAYER,        Console::No },
+                { "ledger", HandleLedger, SEC_PLAYER,        Console::No },
+                { "nemesis", HandleNemesis, 100508 /* SEC_GAMEMASTER -> RBAC */, Console::No },
             };
             static ChatCommandTable root = { { "expedition", sub } };
             return root;
@@ -1058,6 +2264,64 @@ namespace
             return true;
         }
 
+        // the relics in use and this run's powers, with their real numbers
+        static bool HandlePowers(ChatHandler* handler)
+        {
+            Player* p = handler->GetPlayer();
+            if (!p) return true;
+            CharState& s = State(p);
+            handler->PSendSysMessage(Text(handler, S_RELIC_EQUIPPED, "Equipped: {} (combat), {} (utility)"), RelicName(p, s.combat), RelicName(p, s.utility));
+            for (uint32 id : { s.combat, s.utility })
+                if (Relic const* r = RelicById(id))
+                    if (uint8 rank = s.relics.count(id) ? s.relics[id] : 0)
+                        handler->PSendSysMessage(Text(handler, S_POWER_LINE, "  {} x{}: {}"), r->name, rank, EffectText(r->text, r->value[rank - 1]));
+            Run* run = RunFor(p);
+            auto mine = run ? run->powers.find(p->GetGUID().GetCounter()) : decltype(run->powers.end())();
+            if (!run || mine == run->powers.end() || mine->second.empty()) { handler->SendSysMessage(Text(handler, S_NO_POWERS, "No expedition powers this run.")); return true; }
+            handler->SendSysMessage(Text(handler, S_POWER_HEAD, "Expedition powers this run:"));
+            for (auto const& [id, stacks] : mine->second)
+                if (Power const* pw = PowerById(id))
+                    handler->PSendSysMessage(Text(handler, S_POWER_LINE, "  {} x{}: {}"), pw->name, stacks, EffectText(pw->text, pw->value * int32(stacks)));
+            return true;
+        }
+        static bool HandleRelics(ChatHandler* handler)
+        {
+            Player* p = handler->GetPlayer();
+            if (!p) return true;
+            CharState& s = State(p);
+            for (auto const& [id, r] : relicList)
+            {
+                uint8 rank = s.relics.count(id) ? s.relics[id] : 0;
+                if (rank)
+                    handler->PSendSysMessage(Text(handler, S_RELIC_LINE, "[{}] {} - rank {}/{}: {}{}"), SlotName(p, r.slot), r.name, rank, MAX_RELIC_RANK,
+                        EffectText(r.text, r.value[rank - 1]), s.combat == id || s.utility == id ? std::string(Text(handler, S_RELIC_EQUIPPED_MARK, " (equipped)")) : std::string());
+                else
+                    handler->PSendSysMessage(Text(handler, S_RELIC_LOCKED, "[{}] {} - not found yet: {}"), SlotName(p, r.slot), r.name, EffectText(r.text, r.value[0]));
+            }
+            return true;
+        }
+        static bool HandleLedger(ChatHandler* handler)
+        {
+            Player* p = handler->GetPlayer();
+            if (!p) return true;
+            CharState& s = State(p);
+            handler->PSendSysMessage(Text(handler, S_LEDGER, "Wayfinder's Ledger (season {}): rank {}, {} points"), cfg.season, s.rank, s.points);
+            auto next = ledgerRanks.upper_bound(s.rank);
+            if (next != ledgerRanks.end())
+                handler->PSendSysMessage(Text(handler, S_LEDGER_RANK, "Rank {} at {} points: {}{}"), next->first, next->second.points, LedgerRewardText(p, next->second), "");
+            handler->PSendSysMessage(Text(handler, S_WALLET_COINS, "{}: {}"), CoinName(), CoinCount(p));
+            return true;
+        }
+        static bool HandleNemesis(ChatHandler* handler)
+        {
+            Player* p = handler->GetPlayer();
+            Run* run = p ? RunFor(p) : nullptr;
+            if (!run) { handler->SendSysMessage(Text(handler, S_NOT_IN_EXPEDITION, "You are not in an expedition.")); return true; }
+            if (Creature* n = SpawnNemesis(p->GetMap(), *run, p)) handler->PSendSysMessage("{} spawned.", n->GetName());
+            else handler->SendSysMessage("No nemesis: it is off, already here, or the run is over.");
+            return true;
+        }
+
         static bool HandleReload(ChatHandler* handler)
         {
             LoadData();
@@ -1075,4 +2339,11 @@ void AddTemucraftExpeditionsScripts()
     new temucraft_expeditions_player();
     new temucraft_expeditions_unit();
     new temucraft_expeditions_commands();
+    new npc_temucraft_expedition_quartermaster();
+    new go_temucraft_expedition_disturbance();
+    new go_temucraft_expedition_power_chest();
+    new go_temucraft_expedition_trove();
+    new item_temucraft_expedition_lure();
+    new item_temucraft_expedition_bounty();
+    new npc_temucraft_expedition_nemesis();
 }

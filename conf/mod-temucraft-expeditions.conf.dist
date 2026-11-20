@@ -136,3 +136,210 @@ Temucraft.Expeditions.Rich.KeyItem = 0
 Temucraft.Expeditions.Rich.GoldMultiplier = 1.0
 Temucraft.Expeditions.Rich.Item = 0
 Temucraft.Expeditions.Rich.ItemCount = 1
+
+########################################
+# Seasonal currency and the Wayfinder's Ledger
+########################################
+#
+#    Temucraft.Expeditions.Season
+#        Description: The current season. The Wayfinder's Ledger keeps points per season; raise this number to start
+#                     a new one (relics and coins stay).
+#        Default:     1
+
+Temucraft.Expeditions.Season = 1
+
+#
+#    Temucraft.Expeditions.Currency.Item
+#    Temucraft.Expeditions.Currency.PerTier
+#        Description: The seasonal currency item (Wayfinder Coin) and how many each cache gives per tier (lowered by
+#                     deaths like the gold). 0 = no coins.
+#        Default:     608910, 5
+
+Temucraft.Expeditions.Currency.Item = 608910
+Temucraft.Expeditions.Currency.PerTier = 5
+
+#
+#    Temucraft.Expeditions.Ledger.Enable
+#    Temucraft.Expeditions.Ledger.PointsPerTier
+#        Description: The Wayfinder's Ledger (ranks and rewards in mod_temucraft_expedition_ledger_rank) and the points
+#                     a cache gives per tier.
+#        Default:     1, 10
+
+Temucraft.Expeditions.Ledger.Enable = 1
+Temucraft.Expeditions.Ledger.PointsPerTier = 10
+
+#
+#    Temucraft.Expeditions.Vendor.Enable
+#        Description: The Wayfinder Quartermaster (creature 608901, place it with .npc add 608901) sells the wares in
+#                     mod_temucraft_expedition_vendor for Wayfinder Coins.
+#        Default:     1
+
+Temucraft.Expeditions.Vendor.Enable = 1
+
+########################################
+# Nemesis
+########################################
+#
+#    Temucraft.Expeditions.Nemesis.Enable
+#    Temucraft.Expeditions.Nemesis.Entry
+#    Temucraft.Expeditions.Nemesis.DisplayId
+#        Description: The season's nemesis: its creature (any creature works; 608900 is Vorrath the Hollow Stalker with
+#                     its own fight script) and a look to put on it (0 = the creature's own).
+#        Default:     1, 608900, 0
+
+Temucraft.Expeditions.Nemesis.Enable = 1
+Temucraft.Expeditions.Nemesis.Entry = 608900
+Temucraft.Expeditions.Nemesis.DisplayId = 0
+
+#
+#    Temucraft.Expeditions.Nemesis.AmbushFromTier
+#    Temucraft.Expeditions.Nemesis.AmbushChance
+#    Temucraft.Expeditions.Nemesis.AmbushAtPercent
+#        Description: From this tier, each run has this percent chance that the nemesis ambushes the party once this
+#                     percent of the enemies are down. Killing it is optional.
+#        Default:     6, 15, 50
+
+Temucraft.Expeditions.Nemesis.AmbushFromTier = 6
+Temucraft.Expeditions.Nemesis.AmbushChance = 15
+Temucraft.Expeditions.Nemesis.AmbushAtPercent = 50
+
+#
+#    Temucraft.Expeditions.Nemesis.Health
+#    Temucraft.Expeditions.Nemesis.Damage
+#        Description: The nemesis's health and damage compared to the run's expedition boss.
+#        Default:     1.5, 1.2
+
+Temucraft.Expeditions.Nemesis.Health = 1.5
+Temucraft.Expeditions.Nemesis.Damage = 1.2
+
+#
+#    Temucraft.Expeditions.Nemesis.Spells
+#    Temucraft.Expeditions.Nemesis.EnrageSpell
+#    Temucraft.Expeditions.Nemesis.EnrageAt
+#        Description: Spells the nemesis (608900's script) casts, as "spell:seconds" separated by spaces, and an enrage
+#                     spell cast once below EnrageAt percent health (0 = none). Their damage is scaled like the other
+#                     enemies' spells. Defaults: Cleave, Shadow Bolt Volley, Psychic Scream; Enrage.
+#        Default:     "15496:8 17228:12 22884:30", 8599, 30
+
+Temucraft.Expeditions.Nemesis.Spells = "15496:8 17228:12 22884:30"
+Temucraft.Expeditions.Nemesis.EnrageSpell = 8599
+Temucraft.Expeditions.Nemesis.EnrageAt = 30
+
+#
+#    Temucraft.Expeditions.Nemesis.LureItem
+#    Temucraft.Expeditions.Nemesis.LureDropChance
+#        Description: The Hollow Lure item (use it in a run to call the nemesis, once per run) and the percent chance a
+#                     cache gives one.
+#        Default:     608911, 10
+
+Temucraft.Expeditions.Nemesis.LureItem = 608911
+Temucraft.Expeditions.Nemesis.LureDropChance = 10
+
+#
+#    Temucraft.Expeditions.Nemesis.Coins
+#    Temucraft.Expeditions.Nemesis.RewardItem
+#    Temucraft.Expeditions.Nemesis.RewardCount
+#    Temucraft.Expeditions.Nemesis.LedgerPoints
+#        Description: What each party member gets when the nemesis falls in an ordinary run (ambush or lure).
+#        Default:     50, 0, 1, 50
+
+Temucraft.Expeditions.Nemesis.Coins = 50
+Temucraft.Expeditions.Nemesis.RewardItem = 0
+Temucraft.Expeditions.Nemesis.RewardCount = 1
+Temucraft.Expeditions.Nemesis.LedgerPoints = 50
+
+#
+#    Temucraft.Expeditions.Nemesis.LairMap
+#    Temucraft.Expeditions.Nemesis.LairUnlockTier
+#        Description: The dungeon map of the nemesis lair (it must be an expedition; 33 = Shadowfang Keep). Its hidden
+#                     tier ? opens once a character finished this tier in any expedition, tier ?? once ? is done.
+#                     The two tiers are in mod_temucraft_expedition_nemesis_tier.
+#        Default:     33, 8
+
+Temucraft.Expeditions.Nemesis.LairMap = 33
+Temucraft.Expeditions.Nemesis.LairUnlockTier = 8
+
+########################################
+# Relics
+########################################
+#
+#    Temucraft.Expeditions.Relics.Enable
+#    Temucraft.Expeditions.Relics.DropChance
+#        Description: Relics (mod_temucraft_expedition_relic): one combat and one utility relic per character, ranks
+#                     1 to 4, working only inside expeditions. A cache has this percent chance to give a relic the
+#                     character does not have yet.
+#        Default:     1, 10
+
+Temucraft.Expeditions.Relics.Enable = 1
+Temucraft.Expeditions.Relics.DropChance = 10
+
+#
+#    Temucraft.Expeditions.Relics.ShieldRenewSeconds
+#    Temucraft.Expeditions.Relics.MaxDamageTakenReduction
+#        Description: How long a broken relic or power shield takes to come back, and the most damage taken can be
+#                     lowered by relics and powers together (percent).
+#        Default:     20, 50
+
+Temucraft.Expeditions.Relics.ShieldRenewSeconds = 20
+Temucraft.Expeditions.Relics.MaxDamageTakenReduction = 50
+
+#
+#    Temucraft.Expeditions.Relics.CompanionEntries
+#    Temucraft.Expeditions.Relics.CompanionRange
+#        Description: Creature entries of companions (mod-temucraft-followers), separated by spaces, and how far away a
+#                     companion still gets the relic and power auras meant for it.
+#        Default:     "608810 608811 608812", 100
+
+Temucraft.Expeditions.Relics.CompanionEntries = "608810 608811 608812"
+Temucraft.Expeditions.Relics.CompanionRange = 100
+
+########################################
+# Expedition powers
+########################################
+#
+#    Temucraft.Expeditions.Powers.Enable
+#    Temucraft.Expeditions.Powers.Disturbances
+#    Temucraft.Expeditions.Powers.Chests
+#    Temucraft.Expeditions.Powers.Choices
+#    Temucraft.Expeditions.Powers.ChestCoins
+#        Description: Expedition powers (mod_temucraft_expedition_power): run buffs that stack and end when you leave.
+#                     Each run has this many Strange Disturbances (choose one of Choices powers) and chests (a random
+#                     power and ChestCoins Wayfinder Coins), next to enemy spots. Each player can use each one once.
+#        Default:     1, 2, 2, 3, 3
+
+Temucraft.Expeditions.Powers.Enable = 1
+Temucraft.Expeditions.Powers.Disturbances = 2
+Temucraft.Expeditions.Powers.Chests = 2
+Temucraft.Expeditions.Powers.Choices = 3
+Temucraft.Expeditions.Powers.ChestCoins = 3
+
+########################################
+# Bounty maps and Hidden Troves
+########################################
+#
+#    Temucraft.Expeditions.Bounty.Enable
+#    Temucraft.Expeditions.Bounty.Item
+#    Temucraft.Expeditions.Bounty.DropChance
+#        Description: The Wayfinder's Bounty Map: use it inside a run (one a week per character) and a Hidden Trove
+#                     appears next to the cache for you. A cache has this percent chance to give one if you have none.
+#        Default:     1, 608912, 25
+
+Temucraft.Expeditions.Bounty.Enable = 1
+Temucraft.Expeditions.Bounty.Item = 608912
+Temucraft.Expeditions.Bounty.DropChance = 25
+
+#
+#    Temucraft.Expeditions.Bounty.Trove.Coins
+#    Temucraft.Expeditions.Bounty.Trove.Gold
+#    Temucraft.Expeditions.Bounty.Trove.Item
+#    Temucraft.Expeditions.Bounty.Trove.ItemCount
+#    Temucraft.Expeditions.Bounty.Trove.RelicChance
+#        Description: What a Hidden Trove holds: Wayfinder Coins, gold (copper), an item (0 = none) and a percent chance
+#                     of a relic the character does not have yet.
+#        Default:     40, 500000, 0, 1, 25
+
+Temucraft.Expeditions.Bounty.Trove.Coins = 40
+Temucraft.Expeditions.Bounty.Trove.Gold = 500000
+Temucraft.Expeditions.Bounty.Trove.Item = 0
+Temucraft.Expeditions.Bounty.Trove.ItemCount = 1
+Temucraft.Expeditions.Bounty.Trove.RelicChance = 25
