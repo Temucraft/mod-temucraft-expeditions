@@ -188,7 +188,7 @@ INSERT INTO `item_template` (`entry`, `class`, `subclass`, `SoundOverrideSubclas
   'Use inside an expedition: a Hidden Trove appears when its boss falls. One bounty a week.', -1, 0, 'item_temucraft_expedition_bounty', 0);
 
 -- texts 40 and up (1-38 are in temucraft_expeditions.sql)
-DELETE FROM `module_string` WHERE `module` = 'mod-temucraft-expeditions' AND `id` BETWEEN 40 AND 199;
+DELETE FROM `module_string` WHERE `module` = 'mod-temucraft-expeditions' AND `id` BETWEEN 40 AND 94;
 INSERT INTO `module_string` (`module`, `id`, `string`) VALUES
 ('mod-temucraft-expeditions', 40, '{}''s Lair - tier {}'),
 ('mod-temucraft-expeditions', 41, '{}''s Lair - tier ?: finish tier {} of any expedition first'),

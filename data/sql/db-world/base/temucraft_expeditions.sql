@@ -88,7 +88,7 @@ DELETE FROM `gameobject_template` WHERE `entry` = 608806;
 INSERT INTO `gameobject_template` (`entry`, `type`, `displayId`, `name`, `IconName`, `castBarCaption`, `unk1`, `size`, `ScriptName`) VALUES
 (608806, 10, 259, 'Expedition Cache', '', '', '', 1.6, 'go_temucraft_expedition_cache');
 
-DELETE FROM `module_string` WHERE `module` = 'mod-temucraft-expeditions';
+DELETE FROM `module_string` WHERE `module` = 'mod-temucraft-expeditions' AND `id` BETWEEN 1 AND 39;
 INSERT INTO `module_string` (`module`, `id`, `string`) VALUES
 ('mod-temucraft-expeditions', 1, 'Expeditions are closed.'),
 ('mod-temucraft-expeditions', 2, 'Today''s rich expeditions ({})'),

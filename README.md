@@ -46,6 +46,20 @@ creatures, bosses and doors (phase 1) don't exist, and the expedition spawns its
 - Relic and power effects are stock 3.3.5 auras (Twin Spire Blessing, Toughen, Lesser Warding Shield, Attuned to Nature,
   Warming Up) with our own amounts set by the module, so no client patch is needed. The buff tooltip shows the stock
   number; the real numbers are in the gossip menus and `.expedition powers`.
+- **Gravestones**: a player who dies in a run leaves a **Gravestone** (608905) where they fell. A party member who uses it
+  raises them right there (50% health and mana), once per player per run by default. The fallen player has to be in the
+  dungeon (not released to the graveyard outside, or run back first). The death still costs a life. Settings:
+  `Gravestone.*` (on/off, uses per run, which tiers, the lair, how long it stays, how much health).
+- **Slayer enemies**: from tier 3, each run has a 25% chance that one normal enemy is a **slayer**: three times the health,
+  half again the damage, a bit bigger, and 10 extra Wayfinder Coins for everyone when it falls. The party is told which
+  enemy it is when they enter ("Slayer <name>", `module_string` 101). The client shows the creature's own name, since a
+  creature's name comes from its template. Settings: `Slayer.*`.
+- **Expedition window**: the TemucraftExpeditions window shows the current run (tier, affixes, enemies left, deaths and
+  lives), this run's powers with their stacks, the equipped relics, and the Ledger rank, points and coins. It opens by
+  itself when you enter an expedition; `/tex` (or `/wayfinder`) opens and closes it. It is in `addon/TemucraftExpeditions`
+  (copy it to `Interface/AddOns`) and is also built into the client by mod-temucraft-client-version (the same file;
+  the AddOns copy steps aside then). It talks to the server with addon messages, prefix `TEX`
+  (`Temucraft.Expeditions.Addon.Enable`).
 - Walking into the dungeon through its normal portal is still the normal dungeon: only the Expedition Master starts an expedition.
 
 ## Your own expeditions and layouts
@@ -88,11 +102,13 @@ creatures, bosses and doors (phase 1) don't exist, and the expedition spawns its
 | world | `module_string` | the module's texts |
 | world | `mod_temucraft_expedition_relic`, `mod_temucraft_expedition_power`, `mod_temucraft_expedition_ledger_rank`, `mod_temucraft_expedition_vendor`, `mod_temucraft_expedition_nemesis_tier` | new: relics, powers, ledger ranks and rewards, quartermaster wares, the lair's hidden tiers |
 | world | `creature_template`, `creature_template_model`, `gameobject_template`, `item_template`, `npc_text` | the nemesis (608900), the quartermaster (608901), Strange Disturbance (608902), Wayfinder's Chest (608903), Hidden Trove (608904), Wayfinder Coin (608910), Hollow Lure (608911), Wayfinder's Bounty Map (608912) |
+| world | `gameobject_template`, `npc_text`, `module_string` | the Gravestone (608905) and the texts 95-103 (`temucraft_expeditions_extras.sql`) |
 | characters | `mod_temucraft_expedition_progress`, `mod_temucraft_expedition_wallet` | new: best tier, completions and last rich day per character and expedition; key fragments and keys |
 | characters | `mod_temucraft_expedition_relic`, `mod_temucraft_expedition_character`, `mod_temucraft_expedition_ledger` | new: relics and ranks, the equipped pair and bounty week, ledger points per season |
 | auth | `rbac_permissions`, `rbac_linked_permissions` | GM command permissions 100501-100508 |
 
-The new SQL is in its own files (`temucraft_expeditions_features.sql`, `temucraft_expeditions_features_characters.sql`), so
+The new SQL is in its own files (`temucraft_expeditions_features.sql`, `temucraft_expeditions_features_characters.sql`,
+`temucraft_expeditions_extras.sql`), so
 a server that already has the first files only applies the new ones. Every file can be run again safely.
 
 ### Ids
@@ -100,7 +116,7 @@ a server that already has the first files only applies the new ones. Every file 
 | Block | Used for |
 |---|---|
 | 608805, 608806 | Expedition Master, Expedition Cache |
-| 608900-608939 | this module's second block: 608900-608901 creatures, 608902-608904 game objects (and their `npc_text`), 608910-608912 items; 608905-608909 and 608913-608939 are free for later |
+| 608900-608939 | this module's second block: 608900-608901 creatures, 608902-608905 game objects (and their `npc_text`), 608910-608912 items; 608906-608909 and 608913-608939 are free for later |
 
 No creature or game object is spawned by the SQL (place the NPCs with `.npc add`), so no GUIDs are used. No new spells:
 the item use spell is the stock Dummy Spell (18282) and the auras are stock spells; the module clears their dispel type
@@ -109,15 +125,11 @@ in memory so enemies can not dispel them.
 It reads (never changes) `creature`, `creature_template` and `areatrigger_teleport` to find each dungeon's spots and
 entrance.
 
-## Not done yet
-
-Gravestones and slayer enemies. A client addon window for relics and the ledger (everything works through gossip and
-commands).
-
 ## Settings for the new features
 
 Each feature has its own switch and numbers in the config: `Temucraft.Expeditions.Season`, `Currency.*`, `Ledger.*`,
-`Vendor.Enable`, `Nemesis.*` (chance, tier, look, spells, lure, reward, lair map), `Relics.*`, `Powers.*` and `Bounty.*`.
+`Vendor.Enable`, `Nemesis.*` (chance, tier, look, spells, lure, reward, lair map), `Relics.*`, `Powers.*`, `Bounty.*`,
+`Gravestone.*`, `Slayer.*` and `Addon.Enable`.
 Relics, powers, ledger ranks, wares and the lair tiers are rows in the world tables above; `.expedition reload` reads
 them again. A new season: raise `Temucraft.Expeditions.Season`, change the ledger ranks and the nemesis if you like.
 

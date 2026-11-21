@@ -1,0 +1,5 @@
+## Interface: 30300
+## Title: Temucraft Expeditions
+## Notes: Window for the current expedition run, its powers, your relics and the Wayfinder's Ledger (mod-temucraft-expeditions).
+## Version: 1.0
+TemucraftExpeditions.lua

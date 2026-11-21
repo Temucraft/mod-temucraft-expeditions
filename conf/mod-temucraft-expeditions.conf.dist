@@ -343,3 +343,122 @@ Temucraft.Expeditions.Bounty.Trove.Gold = 500000
 Temucraft.Expeditions.Bounty.Trove.Item = 0
 Temucraft.Expeditions.Bounty.Trove.ItemCount = 1
 Temucraft.Expeditions.Bounty.Trove.RelicChance = 25
+
+#
+#    Temucraft.Expeditions.Gravestone.Enable
+#        Description: Gravestones: a player who dies in a run leaves a gravestone where they fell; a party member can use it to raise them there.
+#        Default:     1
+
+Temucraft.Expeditions.Gravestone.Enable = 1
+
+#
+#    Temucraft.Expeditions.Gravestone.Entry
+#        Description: Game object of the gravestone (also its npc_text). Must match data/sql.
+#        Default:     608905
+
+Temucraft.Expeditions.Gravestone.Entry = 608905
+
+#
+#    Temucraft.Expeditions.Gravestone.UsesPerRun
+#        Description: How many times each player can be raised by a gravestone in one run (0 = no gravestones).
+#        Default:     1
+
+Temucraft.Expeditions.Gravestone.UsesPerRun = 1
+
+#
+#    Temucraft.Expeditions.Gravestone.FromTier
+#        Description: Lowest tier with gravestones.
+#        Default:     1
+
+Temucraft.Expeditions.Gravestone.FromTier = 1
+
+#
+#    Temucraft.Expeditions.Gravestone.ToTier
+#        Description: Highest tier with gravestones (0 = every tier from FromTier).
+#        Default:     0
+
+Temucraft.Expeditions.Gravestone.ToTier = 0
+
+#
+#    Temucraft.Expeditions.Gravestone.InLair
+#        Description: Gravestones in the nemesis lair's hidden tiers too.
+#        Default:     1
+
+Temucraft.Expeditions.Gravestone.InLair = 1
+
+#
+#    Temucraft.Expeditions.Gravestone.Seconds
+#        Description: Seconds a gravestone stays (a new death moves it).
+#        Default:     600
+
+Temucraft.Expeditions.Gravestone.Seconds = 600
+
+#
+#    Temucraft.Expeditions.Gravestone.RestorePercent
+#        Description: Health and mana a player raised at a gravestone comes back with, in percent.
+#        Default:     50
+
+Temucraft.Expeditions.Gravestone.RestorePercent = 50
+
+#
+#    Temucraft.Expeditions.Slayer.Enable
+#        Description: Slayer enemies: a chance per run that one normal enemy is a tougher slayer that carries extra Wayfinder Coins (its name in messages comes from module_string 101, "Slayer {}").
+#        Default:     1
+
+Temucraft.Expeditions.Slayer.Enable = 1
+
+#
+#    Temucraft.Expeditions.Slayer.FromTier
+#        Description: Lowest tier that can have a slayer (never in the nemesis lair).
+#        Default:     3
+
+Temucraft.Expeditions.Slayer.FromTier = 3
+
+#
+#    Temucraft.Expeditions.Slayer.Chance
+#        Description: Percent chance per run of a slayer.
+#        Default:     25
+
+Temucraft.Expeditions.Slayer.Chance = 25
+
+#
+#    Temucraft.Expeditions.Slayer.Health
+#        Description: Slayer health, times that of a normal enemy of the run.
+#        Default:     3.0
+
+Temucraft.Expeditions.Slayer.Health = 3.0
+
+#
+#    Temucraft.Expeditions.Slayer.Damage
+#        Description: Slayer damage (melee and spells), times that of a normal enemy of the run.
+#        Default:     1.5
+
+Temucraft.Expeditions.Slayer.Damage = 1.5
+
+#
+#    Temucraft.Expeditions.Slayer.Scale
+#        Description: Slayer size, times its normal size.
+#        Default:     1.25
+
+Temucraft.Expeditions.Slayer.Scale = 1.25
+
+#
+#    Temucraft.Expeditions.Slayer.Coins
+#        Description: Extra Wayfinder Coins for every party member when the slayer falls (relic and power coin bonuses apply).
+#        Default:     10
+
+Temucraft.Expeditions.Slayer.Coins = 10
+
+#
+#    Temucraft.Expeditions.Slayer.LedgerPoints
+#        Description: Wayfinder's Ledger points for every party member when the slayer falls.
+#        Default:     0
+
+Temucraft.Expeditions.Slayer.LedgerPoints = 0
+
+#
+#    Temucraft.Expeditions.Addon.Enable
+#        Description: Send the TemucraftExpeditions window its data (addon messages, prefix TEX): the run, powers, relics and the ledger.
+#        Default:     1
+
+Temucraft.Expeditions.Addon.Enable = 1
