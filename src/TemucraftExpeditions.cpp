@@ -263,6 +263,10 @@ namespace
     std::set<uint32> auraSpells, absorbSpells, takenSpells;        // every spell a relic or power uses
     std::map<ObjectGuid::LowType, CharState> chars;                // loaded on first use, dropped at logout
     std::mutex charsLock;
+    // One lock for all of the module's shared state above: every hook, command and spell handler takes it first, so
+    // the module stays safe with MapUpdate.Threads above 1 (maps update in parallel). Recursive: hooks can nest.
+    std::recursive_mutex expeditionsLock;
+    struct ExpeditionsGuardT { std::lock_guard<std::recursive_mutex> g{ expeditionsLock }; };
     std::unordered_map<ObjectGuid, uint32> absorbAt;               // unit -> when its relic / power shield was last put up
 
     template<typename T>
@@ -1834,6 +1838,7 @@ namespace
 
         bool OnGossipHello(Player* player, Creature* creature) override
         {
+            ExpeditionsGuardT expeditionsGuard;
             if (!cfg.enable) { ChatHandler(player->GetSession()).SendSysMessage(Text(player, S_OFF, "Expeditions are closed.")); return true; }
             ShowMain(player, creature);
             return true;
@@ -1841,6 +1846,7 @@ namespace
 
         bool OnGossipSelect(Player* player, Creature* creature, uint32 /*sender*/, uint32 action) override
         {
+            ExpeditionsGuardT expeditionsGuard;
             if (!cfg.enable) { CloseGossipMenuFor(player); return true; }
             if (action == A_MAIN || action == A_NOOP) { ShowMain(player, creature); return true; }
             if (action == A_RICH) { ShowRich(player, creature); return true; }
@@ -1888,6 +1894,7 @@ namespace
 
         bool OnGossipHello(Player* player, GameObject* go) override
         {
+            ExpeditionsGuardT expeditionsGuard;
             ClearGossipMenuFor(player);
             Run* run = RunFor(player);
             if (run && run->done && !run->claimed.count(player->GetGUID().GetCounter()))
@@ -1899,6 +1906,7 @@ namespace
 
         bool OnGossipSelect(Player* player, GameObject* /*go*/, uint32 /*sender*/, uint32 action) override
         {
+            ExpeditionsGuardT expeditionsGuard;
             CloseGossipMenuFor(player);
             if (action == 1) { if (Run* run = RunFor(player)) Reward(player, *run); }
             else if (action == 2) Leave(player);
@@ -1932,6 +1940,7 @@ namespace
 
         bool OnGossipHello(Player* player, Creature* creature) override
         {
+            ExpeditionsGuardT expeditionsGuard;
             if (!cfg.enable) { ChatHandler(player->GetSession()).SendSysMessage(Text(player, S_OFF, "Expeditions are closed.")); return true; }
             Main(player, creature);
             return true;
@@ -1939,6 +1948,7 @@ namespace
 
         bool OnGossipSelect(Player* player, Creature* creature, uint32 /*sender*/, uint32 action) override
         {
+            ExpeditionsGuardT expeditionsGuard;
             if (!cfg.enable) { CloseGossipMenuFor(player); return true; }
             if (action == A_VENDOR) { ShowVendor(player, creature->GetGUID(), TEXT_QUARTERMASTER); return true; }
             if (action == A_LEDGER) { ShowLedger(player, creature->GetGUID(), TEXT_QUARTERMASTER); return true; }
@@ -1968,6 +1978,7 @@ namespace
 
         bool OnGossipHello(Player* player, GameObject* go) override
         {
+            ExpeditionsGuardT expeditionsGuard;
             ClearGossipMenuFor(player);
             Run* run = RunFor(player);
             if (!run || !cfg.powers) { CloseGossipMenuFor(player); return true; }
@@ -1984,6 +1995,7 @@ namespace
 
         bool OnGossipSelect(Player* player, GameObject* go, uint32 /*sender*/, uint32 action) override
         {
+            ExpeditionsGuardT expeditionsGuard;
             CloseGossipMenuFor(player);
             Run* run = RunFor(player);
             if (!run || !cfg.powers || !action) return true;
@@ -2005,6 +2017,7 @@ namespace
 
         bool OnGossipHello(Player* player, GameObject* go) override
         {
+            ExpeditionsGuardT expeditionsGuard;
             ClearGossipMenuFor(player);
             Run* run = RunFor(player);
             if (!run || !cfg.powers) { CloseGossipMenuFor(player); return true; }
@@ -2016,6 +2029,7 @@ namespace
 
         bool OnGossipSelect(Player* player, GameObject* go, uint32 /*sender*/, uint32 action) override
         {
+            ExpeditionsGuardT expeditionsGuard;
             CloseGossipMenuFor(player);
             Run* run = RunFor(player);
             if (!run || !cfg.powers || action != 1) return true;
@@ -2037,6 +2051,7 @@ namespace
 
         bool OnGossipHello(Player* player, GameObject* go) override
         {
+            ExpeditionsGuardT expeditionsGuard;
             ClearGossipMenuFor(player);
             Run* run = RunFor(player);
             ObjectGuid::LowType me = player->GetGUID().GetCounter();
@@ -2050,6 +2065,7 @@ namespace
 
         bool OnGossipSelect(Player* player, GameObject* /*go*/, uint32 /*sender*/, uint32 action) override
         {
+            ExpeditionsGuardT expeditionsGuard;
             CloseGossipMenuFor(player);
             Run* run = RunFor(player);
             ObjectGuid::LowType me = player->GetGUID().GetCounter();
@@ -2080,6 +2096,7 @@ namespace
 
         bool OnGossipHello(Player* player, GameObject* go) override
         {
+            ExpeditionsGuardT expeditionsGuard;
             ClearGossipMenuFor(player);
             Run* run = RunFor(player);
             if (!run || !cfg.grave || !run->graves.count(go->GetGUID())) { CloseGossipMenuFor(player); return true; }
@@ -2096,6 +2113,7 @@ namespace
 
         bool OnGossipSelect(Player* player, GameObject* go, uint32 /*sender*/, uint32 action) override
         {
+            ExpeditionsGuardT expeditionsGuard;
             CloseGossipMenuFor(player);
             Run* run = RunFor(player);
             if (!run || !cfg.grave || action != 1 || !player->IsAlive()) return true;
@@ -2143,6 +2161,7 @@ namespace
 
         bool OnUse(Player* player, Item* item, SpellCastTargets const& /*targets*/) override
         {
+            ExpeditionsGuardT expeditionsGuard;
             Run* run = RunFor(player);
             if (!cfg.nemesis || !run || run->lair || run->done || run->failed || run->lureUsed || run->nemesis)
             {
@@ -2174,6 +2193,7 @@ namespace
 
         bool OnUse(Player* player, Item* item, SpellCastTargets const& /*targets*/) override
         {
+            ExpeditionsGuardT expeditionsGuard;
             ChatHandler h(player->GetSession());
             EndItemUse(player, item);
             Run* run = RunFor(player);
@@ -2204,10 +2224,11 @@ namespace
         {
             npc_temucraft_expedition_nemesisAI(Creature* creature) : ScriptedAI(creature) { }
 
-            void Reset() override { events.Reset(); enraged = false; }
+            void Reset() override { ExpeditionsGuardT expeditionsGuard; events.Reset(); enraged = false; }
 
             void JustEngagedWith(Unit* /*who*/) override
             {
+                ExpeditionsGuardT expeditionsGuard;
                 events.Reset();
                 for (size_t i = 0; i < cfg.nemesisSpells.size(); ++i)
                     events.ScheduleEvent(uint32(i + 1), Milliseconds(cfg.nemesisSpells[i].second * 500), Milliseconds(cfg.nemesisSpells[i].second * 1000));
@@ -2215,6 +2236,7 @@ namespace
 
             void UpdateAI(uint32 diff) override
             {
+                ExpeditionsGuardT expeditionsGuard;
                 if (!UpdateVictim()) return;
                 events.Update(diff);
                 if (!enraged && cfg.enrageSpell && cfg.enrageAt && me->HealthBelowPct(int32(cfg.enrageAt)))
@@ -2239,7 +2261,7 @@ namespace
             bool enraged = false;
         };
 
-        CreatureAI* GetAI(Creature* creature) const override { return new npc_temucraft_expedition_nemesisAI(creature); }
+        CreatureAI* GetAI(Creature* creature) const override { ExpeditionsGuardT expeditionsGuard; return new npc_temucraft_expedition_nemesisAI(creature); }
     };
 
     // ------------------------------------------------------------------------------------------- hooks
@@ -2254,16 +2276,18 @@ namespace
         // the TemucraftExpeditions window whispering itself; swallowed so nothing shows in chat
         bool OnPlayerCanUseChat(Player* player, uint32 type, uint32 language, std::string& msg, Player* receiver) override
         {
+            ExpeditionsGuardT expeditionsGuard;
             std::string body;
             if (!TemucraftAddonParse(player, type, language, msg, receiver, ADDON_PREFIX, body)) return true;
             if (body == "HELLO" || body == "GET") Notify(player);
             return false;
         }
 
-        void OnPlayerLogin(Player* player) override { if (cfg.enable) Arrive(player); }
-        void OnPlayerMapChanged(Player* player) override { if (cfg.enable) Arrive(player); }
+        void OnPlayerLogin(Player* player) override { ExpeditionsGuardT expeditionsGuard; if (cfg.enable) Arrive(player); }
+        void OnPlayerMapChanged(Player* player) override { ExpeditionsGuardT expeditionsGuard; if (cfg.enable) Arrive(player); }
         void OnPlayerLogout(Player* player) override
         {
+            ExpeditionsGuardT expeditionsGuard;
             // the phase isn't saved; at login inside the instance Arrive() puts a member back in the expedition phase
             ObjectGuid::LowType me = player->GetGUID().GetCounter();
             pending.erase(me); viewing.erase(me); previousPhase.erase(me);
@@ -2273,6 +2297,7 @@ namespace
         }
         void OnPlayerDelete(ObjectGuid guid, uint32 /*accountId*/) override
         {
+            ExpeditionsGuardT expeditionsGuard;
             CharacterDatabase.Execute("DELETE FROM mod_temucraft_expedition_progress WHERE owner = {}", guid.GetCounter());
             CharacterDatabase.Execute("DELETE FROM mod_temucraft_expedition_wallet WHERE owner = {}", guid.GetCounter());
             CharacterDatabase.Execute("DELETE FROM mod_temucraft_expedition_relic WHERE owner = {}", guid.GetCounter());
@@ -2281,6 +2306,7 @@ namespace
         }
         void OnPlayerJustDied(Player* player) override
         {
+            ExpeditionsGuardT expeditionsGuard;
             Run* run = RunFor(player);
             if (!run || run->done || run->failed) return;
             ++run->deaths;
@@ -2310,16 +2336,19 @@ namespace
         }
         void ModifySpellDamageTaken(Unit* /*target*/, Unit* attacker, int32& damage, SpellInfo const* /*spellInfo*/) override
         {
+            ExpeditionsGuardT expeditionsGuard;
             float f = Factor(attacker);
             if (f != 1.0f && damage > 0) damage = int32(damage * f);
         }
         void ModifyPeriodicDamageAurasTick(Unit* /*target*/, Unit* attacker, uint32& damage, SpellInfo const* /*spellInfo*/) override
         {
+            ExpeditionsGuardT expeditionsGuard;
             float f = Factor(attacker);
             if (f != 1.0f) damage = uint32(damage * f);
         }
         void OnUnitDeath(Unit* unit, Unit* killer) override
         {
+            ExpeditionsGuardT expeditionsGuard;
             if (enemies.empty() || !unit || !unit->IsCreature()) return;
             auto it = enemies.find(unit->GetGUID());
             if (it == enemies.end()) return;
@@ -2354,10 +2383,11 @@ namespace
     {
     public:
         temucraft_expeditions_world() : WorldScript("temucraft_expeditions_world", { WORLDHOOK_ON_AFTER_CONFIG_LOAD, WORLDHOOK_ON_STARTUP, WORLDHOOK_ON_UPDATE }) { }
-        void OnAfterConfigLoad(bool /*reload*/) override { LoadSettings(); }
-        void OnStartup() override { LoadData(); }
+        void OnAfterConfigLoad(bool /*reload*/) override { ExpeditionsGuardT expeditionsGuard; LoadSettings(); }
+        void OnStartup() override { ExpeditionsGuardT expeditionsGuard; LoadData(); }
         void OnUpdate(uint32 diff) override
         {
+            ExpeditionsGuardT expeditionsGuard;
             // relic and power auras: put back after a death, follow the companion, renew used-up shields
             refresh += diff;
             if (refresh >= 2000 && !auraSpells.empty())
@@ -2400,6 +2430,7 @@ namespace
 
         ChatCommandTable GetCommands() const override
         {
+            ExpeditionsGuardT expeditionsGuard;
             static ChatCommandTable sub =
             {
                 { "leave",  HandleLeave,  100550,        Console::No },
@@ -2422,6 +2453,7 @@ namespace
 
         static bool HandleLeave(ChatHandler* handler)
         {
+            ExpeditionsGuardT expeditionsGuard;
             Player* p = handler->GetPlayer();
             if (!p) return true;
             if (!RunFor(p) && !previousPhase.count(p->GetGUID().GetCounter())) { handler->SendSysMessage(Text(handler, S_NOT_IN_EXPEDITION, "You are not in an expedition.")); return true; }
@@ -2430,6 +2462,7 @@ namespace
         }
         static bool HandleStatus(ChatHandler* handler)
         {
+            ExpeditionsGuardT expeditionsGuard;
             Player* p = handler->GetPlayer();
             if (p)
             {
@@ -2445,6 +2478,7 @@ namespace
         }
         static bool HandleStart(ChatHandler* handler, uint32 map, Optional<uint32> tier)
         {
+            ExpeditionsGuardT expeditionsGuard;
             Player* p = handler->GetPlayer();
             if (!p) return true;
             Enter(p, map, tier && tiers.count(*tier) ? *tier : tiers.begin()->first, true);
@@ -2452,6 +2486,7 @@ namespace
         }
         static bool HandleList(ChatHandler* handler)
         {
+            ExpeditionsGuardT expeditionsGuard;
             for (auto const& [id, d] : expeditions)
                 handler->PSendSysMessage("{} {} [{}] {} spots{}{}", id, d.name, CATEGORY_NAMES[d.category], d.points.size(),
                     d.hand.empty() ? "" : ", hand-made layout", d.enabled ? "" : " (off)");
@@ -2472,6 +2507,7 @@ namespace
         // .temucraft expedition here [name]: this map is an expedition, entered where you stand
         static bool HandleHere(ChatHandler* handler, Optional<Tail> name)
         {
+            ExpeditionsGuardT expeditionsGuard;
             Player* p = handler->GetPlayer();
             if (!OnDungeon(handler, p)) return true;
             std::string n = name ? std::string(*name) : std::string();
@@ -2489,6 +2525,7 @@ namespace
         // .temucraft expedition spot normal|elite|boss [variant]: an enemy here; its creature is the one you target
         static bool HandleSpot(ChatHandler* handler, std::string kind, Optional<uint8> variant)
         {
+            ExpeditionsGuardT expeditionsGuard;
             Player* p = handler->GetPlayer();
             if (!OnDungeon(handler, p)) return true;
             uint8 k = kind == "boss" ? K_BOSS : kind == "elite" ? K_ELITE : kind == "normal" || kind == "mob" ? K_MOB : 255;
@@ -2509,6 +2546,7 @@ namespace
         // .temucraft expedition unspot: remove the nearest hand-made spot within 10 yards
         static bool HandleUnspot(ChatHandler* handler)
         {
+            ExpeditionsGuardT expeditionsGuard;
             Player* p = handler->GetPlayer();
             if (!OnDungeon(handler, p)) return true;
             QueryResult r = WorldDatabase.Query("SELECT id, POW(x - {0}, 2) + POW(y - {1}, 2) + POW(z - {2}, 2) AS d FROM mod_temucraft_expedition_spawn "
@@ -2522,6 +2560,7 @@ namespace
 
         static bool HandleSpots(ChatHandler* handler)
         {
+            ExpeditionsGuardT expeditionsGuard;
             Player* p = handler->GetPlayer();
             if (!OnDungeon(handler, p)) return true;
             QueryResult r = WorldDatabase.Query("SELECT variant, SUM(kind = 0), SUM(kind = 1), SUM(kind = 2) FROM mod_temucraft_expedition_spawn WHERE map = {} GROUP BY variant", p->GetMapId());
@@ -2539,6 +2578,7 @@ namespace
         // the relics in use and this run's powers, with their real numbers
         static bool HandlePowers(ChatHandler* handler)
         {
+            ExpeditionsGuardT expeditionsGuard;
             Player* p = handler->GetPlayer();
             if (!p) return true;
             CharState& s = State(p);
@@ -2558,6 +2598,7 @@ namespace
         }
         static bool HandleRelics(ChatHandler* handler)
         {
+            ExpeditionsGuardT expeditionsGuard;
             Player* p = handler->GetPlayer();
             if (!p) return true;
             CharState& s = State(p);
@@ -2574,6 +2615,7 @@ namespace
         }
         static bool HandleLedger(ChatHandler* handler)
         {
+            ExpeditionsGuardT expeditionsGuard;
             Player* p = handler->GetPlayer();
             if (!p) return true;
             CharState& s = State(p);
@@ -2586,6 +2628,7 @@ namespace
         }
         static bool HandleNemesis(ChatHandler* handler)
         {
+            ExpeditionsGuardT expeditionsGuard;
             Player* p = handler->GetPlayer();
             Run* run = p ? RunFor(p) : nullptr;
             if (!run) { handler->SendSysMessage(Text(handler, S_NOT_IN_EXPEDITION, "You are not in an expedition.")); return true; }
@@ -2596,6 +2639,7 @@ namespace
 
         static bool HandleReload(ChatHandler* handler)
         {
+            ExpeditionsGuardT expeditionsGuard;
             LoadData();
             handler->PSendSysMessage("mod-temucraft-expeditions: {} expeditions, {} tiers.", expeditions.size(), tiers.size());
             return true;
