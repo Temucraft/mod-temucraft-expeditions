@@ -71,7 +71,7 @@ local function Refresh()
             if r.state == 1 then
                 add("|cff40ff40Complete!|r Open the Expedition Cache.")
             elseif r.state == 2 then
-                add("|cffff4040Failed.|r Use .expedition leave to go back.")
+                add("|cffff4040Failed.|r Use .temucraft expedition leave to go back.")
             else
                 add("Enemies left: |cffffffff" .. r.left .. "|r of " .. r.total)
             end

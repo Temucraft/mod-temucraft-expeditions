@@ -112,7 +112,7 @@ Temucraft.Expeditions.Rich.PerDay = 3
 #    Temucraft.Expeditions.Rich.Keys
 #        Description: The rich reward needs an Expedition Key. Keys are made from Cache Key Fragments, which
 #                     every cache gives (ShardsPerTier x the tier); every ShardsPerKey shards make a key. Shards and
-#                     keys are kept per character (no item, see .expedition status). 0 = no key needed.
+#                     keys are kept per character (no item, see .temucraft expedition status). 0 = no key needed.
 #        Default:     1, 100, 10
 
 Temucraft.Expeditions.Rich.Keys = 1

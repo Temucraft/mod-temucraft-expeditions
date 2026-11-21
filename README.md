@@ -19,7 +19,7 @@ creatures, bosses and doors (phase 1) don't exist, and the expedition spawns its
 - Kill the boss and a **Expedition Cache** appears: gold, the tier's item, a bonus item for a deathless run, and on a
   **rich** expedition (3 a day, the same for everyone) the rich reward for your first rich cache of the day
   which needs a **Expedition Key**: every cache gives Cache Key Fragments (10 × tier), and every 100 shards
-  make a key (`.expedition status` shows them; a real key item can be used instead). The cache also takes you back to where you started.
+  make a key (`.temucraft expedition status` shows them; a real key item can be used instead). The cache also takes you back to where you started.
 - **Affixes** change weekly, one from tier 4, two from tier 8: Hardened (enemies +25% health), Warlord's (boss +30%
   health, +15% damage), Brutal (+15% damage), Swarming (+30% enemies).
 - **Companions** from [mod-temucraft-followers](https://github.com/Temucraft/mod-temucraft-followers) come along when their activity mask has the expedition bit (4).
@@ -45,7 +45,7 @@ creatures, bosses and doors (phase 1) don't exist, and the expedition spawns its
   (608904) appears next to the cache for you: coins, gold and a chance of a relic.
 - Relic and power effects are stock 3.3.5 auras (Twin Spire Blessing, Toughen, Lesser Warding Shield, Attuned to Nature,
   Warming Up) with our own amounts set by the module, so no client patch is needed. The buff tooltip shows the stock
-  number; the real numbers are in the gossip menus and `.expedition powers`.
+  number; the real numbers are in the gossip menus and `.temucraft expedition powers`.
 - **Gravestones**: a player who dies in a run leaves a **Gravestone** (608905) where they fell. A party member who uses it
   raises them right there (50% health and mana), once per player per run by default. The fallen player has to be in the
   dungeon (not released to the graveyard outside, or run back first). The death still costs a life. Settings:
@@ -70,21 +70,21 @@ creatures, bosses and doors (phase 1) don't exist, and the expedition spawns its
 - `mod_temucraft_expedition_spawn` replaces the automatic layout with a hand-made one: per variant (0 = every day), enemies
   (kind 0), elites (1) and the boss (2) with exact positions.
 - `mod_temucraft_expedition_tier` holds the tiers: health and damage multipliers, lives, gold and items.
-- `.expedition list` shows every expedition with its category and spot count; `.expedition reload` reloads all three tables.
+- `.temucraft expedition list` shows every expedition with its category and spot count; `.temucraft expedition reload` reloads all three tables.
 
 ## Commands
 
 | Command | Who | What |
 |---|---|---|
-| `.expedition leave` | everyone | leave the expedition, back to where you entered it |
-| `.expedition status` | everyone | tier, enemies defeated, deaths and lives |
-| `.expedition powers` | everyone | equipped relics and this run's powers, with their real numbers |
-| `.expedition relics` | everyone | every relic, its rank and effect |
-| `.expedition ledger` | everyone | Wayfinder's Ledger rank, points, next reward and coins |
-| `.expedition nemesis` | GM | call the nemesis into the run you are in |
-| `.expedition start <map> [tier]` | GM | start an expedition here without the Keeper (no level check) |
-| `.expedition list` | GM | all expeditions |
-| `.expedition reload` | admin | reload expeditions, layouts and tiers |
+| `.temucraft expedition leave` | everyone | leave the expedition, back to where you entered it |
+| `.temucraft expedition status` | everyone | tier, enemies defeated, deaths and lives |
+| `.temucraft expedition powers` | everyone | equipped relics and this run's powers, with their real numbers |
+| `.temucraft expedition relics` | everyone | every relic, its rank and effect |
+| `.temucraft expedition ledger` | everyone | Wayfinder's Ledger rank, points, next reward and coins |
+| `.temucraft expedition nemesis` | GM | call the nemesis into the run you are in |
+| `.temucraft expedition start <map> [tier]` | GM | start an expedition here without the Keeper (no level check) |
+| `.temucraft expedition list` | GM | all expeditions |
+| `.temucraft expedition reload` | admin | reload expeditions, layouts and tiers |
 
 ## Install
 
@@ -130,7 +130,7 @@ entrance.
 Each feature has its own switch and numbers in the config: `Temucraft.Expeditions.Season`, `Currency.*`, `Ledger.*`,
 `Vendor.Enable`, `Nemesis.*` (chance, tier, look, spells, lure, reward, lair map), `Relics.*`, `Powers.*`, `Bounty.*`,
 `Gravestone.*`, `Slayer.*` and `Addon.Enable`.
-Relics, powers, ledger ranks, wares and the lair tiers are rows in the world tables above; `.expedition reload` reads
+Relics, powers, ledger ranks, wares and the lair tiers are rows in the world tables above; `.temucraft expedition reload` reads
 them again. A new season: raise `Temucraft.Expeditions.Season`, change the ledger ranks and the nemesis if you like.
 
 ## Texts and translations
@@ -148,9 +148,9 @@ have no creatures of their own (unused or empty dungeon maps) become expeditions
 
 | Command | What |
 |---|---|
-| `.expedition here [name]` | This map is an expedition, entered where you stand |
-| `.expedition spot normal\|elite\|boss [variant 0-2]` | An enemy where you stand, using the targeted creature's look and spells |
-| `.expedition unspot` | Remove the nearest hand-made spot (10 yards) |
-| `.expedition spots` | The layout so far, and whether the expedition is usable |
+| `.temucraft expedition here [name]` | This map is an expedition, entered where you stand |
+| `.temucraft expedition spot normal\|elite\|boss [variant 0-2]` | An enemy where you stand, using the targeted creature's look and spells |
+| `.temucraft expedition unspot` | Remove the nearest hand-made spot (10 yards) |
+| `.temucraft expedition spots` | The layout so far, and whether the expedition is usable |
 
 Rows go to `mod_temucraft_expedition` and `mod_temucraft_expedition_spawn`; the module reloads them at once.

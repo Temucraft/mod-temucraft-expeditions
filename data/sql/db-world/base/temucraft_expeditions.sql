@@ -107,7 +107,7 @@ INSERT INTO `module_string` (`module`, `id`, `string`) VALUES
 ('mod-temucraft-expeditions', 15, '|cffffcc00Expedition:|r {} - tier {}{}. Defeat the expedition boss deep inside; {} enemies await.'),
 ('mod-temucraft-expeditions', 16, '|cffffcc00Expedition complete!|r Open the Expedition Cache for your rewards.'),
 ('mod-temucraft-expeditions', 17, '|cffffcc00Expedition:|r a life is lost ({} of {} left). Each death lowers the cache.'),
-('mod-temucraft-expeditions', 18, '|cffffcc00Expedition failed:|r you ran out of lives. Use .expedition leave to go back.'),
+('mod-temucraft-expeditions', 18, '|cffffcc00Expedition failed:|r you ran out of lives. Use .temucraft expedition leave to go back.'),
 ('mod-temucraft-expeditions', 19, 'Open the cache'),
 ('mod-temucraft-expeditions', 20, 'Leave the expedition'),
 ('mod-temucraft-expeditions', 21, 'The cache stays shut until the expedition boss is defeated.'),

@@ -46,8 +46,8 @@
  *   its powers, the equipped relics and the ledger (addon/TemucraftExpeditions, also built into the client by
  *   mod-temucraft-client-version).
  *
- * Commands: .expedition leave | status | powers | relics | ledger ; GM: .expedition start <map> <tier>, .expedition list,
- * .expedition nemesis ; admin: .expedition reload
+ * Commands: .temucraft expedition leave | status | powers | relics | ledger ; GM: .temucraft expedition start <map> <tier>, .temucraft expedition list,
+ * .temucraft expedition nemesis ; admin: .temucraft expedition reload
  * Text comes from module_string (module "mod-temucraft-expeditions"), with English built in as a fallback.
  */
 #include "Chat.h"
@@ -1512,7 +1512,7 @@ namespace
         map->DoForAllPlayers([&run](Player* p)
         {
             if (run.members.count(p->GetGUID().GetCounter()))
-                ChatHandler(p->GetSession()).SendSysMessage(Text(p, S_FAILED, "|cffffcc00Expedition failed:|r you ran out of lives. Use .expedition leave to go back."));
+                ChatHandler(p->GetSession()).SendSysMessage(Text(p, S_FAILED, "|cffffcc00Expedition failed:|r you ran out of lives. Use .temucraft expedition leave to go back."));
         });
         Despawn(map, run);
         NotifyRun(map, run);
@@ -2402,8 +2402,8 @@ namespace
         {
             static ChatCommandTable sub =
             {
-                { "leave",  HandleLeave,  SEC_PLAYER,        Console::No },
-                { "status", HandleStatus, SEC_PLAYER,        Console::No },
+                { "leave",  HandleLeave,  100550,        Console::No },
+                { "status", HandleStatus, 100551,        Console::No },
                 { "start",  HandleStart,  100501 /* SEC_GAMEMASTER -> RBAC */,    Console::No },
                 { "list",   HandleList,   100502 /* SEC_GAMEMASTER -> RBAC */,    Console::Yes },
                 { "reload", HandleReload, 100503 /* SEC_ADMINISTRATOR -> RBAC */, Console::Yes },
@@ -2411,12 +2411,12 @@ namespace
                 { "spot",   HandleSpot,   100505 /* SEC_GAMEMASTER -> RBAC */,    Console::No },
                 { "unspot", HandleUnspot, 100506 /* SEC_GAMEMASTER -> RBAC */,    Console::No },
                 { "spots",  HandleSpots,  100507 /* SEC_GAMEMASTER -> RBAC */,    Console::No },
-                { "powers", HandlePowers, SEC_PLAYER,        Console::No },
-                { "relics", HandleRelics, SEC_PLAYER,        Console::No },
-                { "ledger", HandleLedger, SEC_PLAYER,        Console::No },
+                { "powers", HandlePowers, 100552,        Console::No },
+                { "relics", HandleRelics, 100553,        Console::No },
+                { "ledger", HandleLedger, 100554,        Console::No },
                 { "nemesis", HandleNemesis, 100508 /* SEC_GAMEMASTER -> RBAC */, Console::No },
             };
-            static ChatCommandTable root = { { "expedition", sub } };
+            static ChatCommandTable root = { { "temucraft expedition", sub } };
             return root;
         }
 
@@ -2469,7 +2469,7 @@ namespace
             return true;
         }
 
-        // .expedition here [name]: this map is an expedition, entered where you stand
+        // .temucraft expedition here [name]: this map is an expedition, entered where you stand
         static bool HandleHere(ChatHandler* handler, Optional<Tail> name)
         {
             Player* p = handler->GetPlayer();
@@ -2481,12 +2481,12 @@ namespace
                 "entrance_x = VALUES(entrance_x), entrance_y = VALUES(entrance_y), entrance_z = VALUES(entrance_z), entrance_o = VALUES(entrance_o)",
                 p->GetMapId(), n, p->GetPositionX(), p->GetPositionY(), p->GetPositionZ(), p->GetOrientation());
             LoadData();
-            handler->PSendSysMessage("Map {} is an expedition, entered here. Add spots with .expedition spot normal|elite|boss (target a creature to use its look).",
+            handler->PSendSysMessage("Map {} is an expedition, entered here. Add spots with .temucraft expedition spot normal|elite|boss (target a creature to use its look).",
                 p->GetMapId());
             return true;
         }
 
-        // .expedition spot normal|elite|boss [variant]: an enemy here; its creature is the one you target
+        // .temucraft expedition spot normal|elite|boss [variant]: an enemy here; its creature is the one you target
         static bool HandleSpot(ChatHandler* handler, std::string kind, Optional<uint8> variant)
         {
             Player* p = handler->GetPlayer();
@@ -2495,18 +2495,18 @@ namespace
             Creature* target = handler->getSelectedCreature();
             if (k == 255 || !target)
             {
-                handler->SendSysMessage("Target a creature (its look and spells are used), then: .expedition spot normal|elite|boss [variant 0-2].");
+                handler->SendSysMessage("Target a creature (its look and spells are used), then: .temucraft expedition spot normal|elite|boss [variant 0-2].");
                 return true;
             }
             uint8 v = variant ? std::min<uint8>(*variant, 2) : 0;
             WorldDatabase.DirectExecute("INSERT INTO mod_temucraft_expedition_spawn (map, variant, kind, entry, x, y, z, o) VALUES ({}, {}, {}, {}, {}, {}, {}, {})",
                 p->GetMapId(), v, k, target->GetEntry(), p->GetPositionX(), p->GetPositionY(), p->GetPositionZ(), p->GetOrientation());
             LoadData();
-            handler->PSendSysMessage("Spot added ({} {}, variant {}). .expedition spots shows the layout.", kind, target->GetName(), v);
+            handler->PSendSysMessage("Spot added ({} {}, variant {}). .temucraft expedition spots shows the layout.", kind, target->GetName(), v);
             return true;
         }
 
-        // .expedition unspot: remove the nearest hand-made spot within 10 yards
+        // .temucraft expedition unspot: remove the nearest hand-made spot within 10 yards
         static bool HandleUnspot(ChatHandler* handler)
         {
             Player* p = handler->GetPlayer();
@@ -2532,7 +2532,7 @@ namespace
                 handler->PSendSysMessage("Variant {}: {} normal, {} elite, {} boss", f[0].Get<uint8>(), f[1].Get<uint32>(), f[2].Get<uint32>(), f[3].Get<uint32>());
             } while (r->NextRow());
             handler->PSendSysMessage(expeditions.count(p->GetMapId()) ? "This map is a usable expedition." :
-                "Not usable yet: it needs .expedition here (an entrance) and at least one spot.");
+                "Not usable yet: it needs .temucraft expedition here (an entrance) and at least one spot.");
             return true;
         }
 
