@@ -693,7 +693,7 @@ namespace
                 if (Item* it = Item::CreateItem(item, n, player)) { it->SaveToDB(trans); draft.AddItem(it); }
                 left -= n;
             }
-            draft.SendMailTo(trans, MailReceiver(player), MailSender(MAIL_NORMAL, 0, MAIL_STATIONERY_GM));
+            draft.SendMailTo(trans, MailReceiver(player), MailSender(MAIL_NORMAL, 0, MAIL_STATIONERY_DEFAULT));
             CharacterDatabase.CommitTransaction(trans);
             ChatHandler(player->GetSession()).SendSysMessage(Text(player, S_BAGS_FULL, "  Your bags are full: the rest comes by mail."));
         }
