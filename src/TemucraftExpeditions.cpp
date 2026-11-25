@@ -252,7 +252,11 @@ namespace
     std::unordered_map<ObjectGuid::LowType, uint32> previousPhase;
     std::unordered_map<ObjectGuid::LowType, uint32> viewing;       // expedition chosen at the keeper
     std::unordered_map<uint32, Party> parties;                     // by token
-    std::unordered_map<ObjectGuid, std::pair<uint32, float>> enemies; // creature -> (instance, spell damage factor)
+    // (instance id, creature) -> (instance, spell damage factor). Keyed by the instance too: every instance copy numbers
+    // its creatures from 1, so two runs of the same dungeon summon creatures with the same ObjectGuid.
+    using EnemyKey = std::pair<uint32, ObjectGuid>;
+    std::map<EnemyKey, std::pair<uint32, float>> enemies;
+    EnemyKey EnemyOf(Unit const* u) { return { u->GetInstanceId(), u->GetGUID() }; }
     uint32 nextToken = 1;
 
     std::map<uint32, Relic> relicList;                             // by id
@@ -267,7 +271,9 @@ namespace
     // the module stays safe with MapUpdate.Threads above 1 (maps update in parallel). Recursive: hooks can nest.
     std::recursive_mutex expeditionsLock;
     struct ExpeditionsGuardT { std::lock_guard<std::recursive_mutex> g{ expeditionsLock }; };
-    std::unordered_map<ObjectGuid, uint32> absorbAt;               // unit -> when its relic / power shield was last put up
+    // (instance id or 0 for players, unit) -> when its relic / power shield was last put up
+    std::map<EnemyKey, uint32> absorbAt;
+    EnemyKey AbsorbKeyOf(Unit const* u) { return { u->IsPlayer() ? 0 : u->GetInstanceId(), u->GetGUID() }; }
 
     template<typename T>
     char const* Text(T who, uint32 id, char const* fallback) { return TemucraftModuleText(MODULE, who, id, fallback); }
@@ -766,13 +772,13 @@ namespace
             if (!aura)
             {
                 // a used-up shield comes back after Relics.ShieldRenewSeconds
-                if (absorb) { auto at = absorbAt.find(target->GetGUID()); if (at != absorbAt.end() && now - at->second < cfg.absorbRenew) continue; }
+                if (absorb) { auto at = absorbAt.find(AbsorbKeyOf(target)); if (at != absorbAt.end() && now - at->second < cfg.absorbRenew) continue; }
                 aura = caster->AddAura(spell, target);
                 if (!aura) continue;
                 aura->SetMaxDuration(-1);
                 aura->SetDuration(-1);
                 if (AuraEffect* e = aura->GetEffect(EFFECT_0)) e->ChangeAmount(it->second);
-                if (absorb) absorbAt[target->GetGUID()] = now;
+                if (absorb) absorbAt[AbsorbKeyOf(target)] = now;
             }
             else if (!absorb)
                 if (AuraEffect* e = aura->GetEffect(EFFECT_0))
@@ -1013,7 +1019,7 @@ namespace
         // spells keep their own numbers, so they are scaled by how much stronger the level made the creature
         float before = orig ? orig->BaseDamage[std::min<uint32>(t->expansion, EXPANSION_WRATH_OF_THE_LICH_KING)] : 0.0f;
         float spell = before > 0.0f ? s->BaseDamage[EXPANSION_WRATH_OF_THE_LICH_KING] / before : 1.0f;
-        enemies[c->GetGUID()] = { run.instance, std::clamp(spell, 0.5f, 50.0f) * damage * (boss ? 1.25f : 1.0f) };
+        enemies[EnemyKey(run.instance, c->GetGUID())] = { run.instance, std::clamp(spell, 0.5f, 50.0f) * damage * (boss ? 1.25f : 1.0f) };
     }
 
     Creature* Place(Map* map, Run& run, uint32 entry, Position const& pos, Kind kind, Party const& party)
@@ -1034,7 +1040,7 @@ namespace
     {
         for (ObjectGuid const& g : run.creatures)
         {
-            enemies.erase(g);
+            enemies.erase(EnemyKey(run.instance, g));
             if (map)
                 if (Creature* c = map->GetCreature(g)) c->DespawnOrUnsummon();
         }
@@ -1169,7 +1175,7 @@ namespace
         c->UpdateAllStats();
         c->SetHealth(c->GetMaxHealth());
         c->SetObjectScale(c->GetObjectScale() * cfg.slayerScale);
-        auto e = enemies.find(c->GetGUID());
+        auto e = enemies.find(EnemyKey(run.instance, c->GetGUID()));
         if (e != enemies.end()) e->second.second *= cfg.slayerDamage;   // its spells too
         run.slayer = c->GetGUID();
     }
@@ -2291,7 +2297,7 @@ namespace
             // the phase isn't saved; at login inside the instance Arrive() puts a member back in the expedition phase
             ObjectGuid::LowType me = player->GetGUID().GetCounter();
             pending.erase(me); viewing.erase(me); previousPhase.erase(me);
-            absorbAt.erase(player->GetGUID());
+            absorbAt.erase(AbsorbKeyOf(player));
             std::lock_guard<std::mutex> guard(charsLock);
             chars.erase(me);
         }
@@ -2331,7 +2337,7 @@ namespace
         static float Factor(Unit* attacker)
         {
             if (enemies.empty() || !attacker || !attacker->IsCreature()) return 1.0f;
-            auto it = enemies.find(attacker->GetGUID());
+            auto it = enemies.find(EnemyOf(attacker));
             return it == enemies.end() ? 1.0f : it->second.second;
         }
         void ModifySpellDamageTaken(Unit* /*target*/, Unit* attacker, int32& damage, SpellInfo const* /*spellInfo*/) override
@@ -2350,7 +2356,7 @@ namespace
         {
             ExpeditionsGuardT expeditionsGuard;
             if (enemies.empty() || !unit || !unit->IsCreature()) return;
-            auto it = enemies.find(unit->GetGUID());
+            auto it = enemies.find(EnemyOf(unit));
             if (it == enemies.end()) return;
             uint32 instance = it->second.first;
             enemies.erase(it);
@@ -2408,7 +2414,8 @@ namespace
             {
                 if (!sMapMgr->FindMap(it->second.map, it->first))
                 {
-                    for (ObjectGuid const& g : it->second.creatures) enemies.erase(g);
+                    for (ObjectGuid const& g : it->second.creatures) enemies.erase(EnemyKey(it->first, g));
+
                     it = runs.erase(it);
                 }
                 else ++it;
