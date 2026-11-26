@@ -156,3 +156,9 @@ have no creatures of their own (unused or empty dungeon maps) become expeditions
 | `.temucraft expedition spots` | The layout so far, and whether the expedition is usable |
 
 Rows go to `mod_temucraft_expedition` and `mod_temucraft_expedition_spawn`; the module reloads them at once.
+
+## Shared headers
+
+`TemucraftPlayerSettings.h`, `TemucraftModuleText.h` and `TemucraftAddonMessage.h` in `src/` are shared with other Temucraft modules and must stay the same everywhere (all modules
+share one include path). `_tools\check_shared_headers.py` checks the copies (`--fix` copies the canonical one over
+them). The canonical `TemucraftPlayerSettings.h` is in mod-temucraft-player-settings, `TemucraftModuleText.h` is in mod-temucraft, `TemucraftAddonMessage.h` is in mod-temucraft-client-version. Change the canonical copy, then run the check with `--fix`.
