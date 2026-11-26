@@ -20,6 +20,8 @@ creatures, bosses and doors (phase 1) don't exist, and the expedition spawns its
   **rich** expedition (3 a day, the same for everyone) the rich reward for your first rich cache of the day
   which needs a **Expedition Key**: every cache gives Cache Key Fragments (10 × tier), and every 100 shards
   make a key (`.temucraft expedition status` shows them; a real key item can be used instead). The cache also takes you back to where you started.
+  Starting a tier or a lair and leaving through the cache ask "Teleport to: ..." first (Accept / Cancel), unless the
+  player turned "Ask before teleports and portals" off (`TemucraftPlayerSettings.h`, mod-temucraft-player-settings).
 - **Affixes** change weekly, one from tier 4, two from tier 8: Hardened (enemies +25% health), Warlord's (boss +30%
   health, +15% damage), Brutal (+15% damage), Swarming (+30% enemies).
 - **Companions** from [mod-temucraft-followers](https://github.com/Temucraft/mod-temucraft-followers) come along when their activity mask has the expedition bit (4).

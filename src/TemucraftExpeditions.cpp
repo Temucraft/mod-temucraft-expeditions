@@ -85,6 +85,7 @@
 #include "TemporarySummon.h"
 #include "TemucraftAddonMessage.h"
 #include "TemucraftModuleText.h"
+#include "TemucraftPlayerSettings.h"
 #include "Tokenize.h"
 #include "UnitScript.h"
 #include "World.h"
@@ -1602,7 +1603,8 @@ namespace
             uint8 affixes = WeeklyAffixes(n);
             AddGossipItemFor(player, GOSSIP_ICON_BATTLE, Acore::StringFormat(Text(player, S_TIER_LINE, "Tier {}: {} lives, {} gold{}"), n,
                 t.lives ? std::to_string(t.lives) : std::string("unlimited"), t.gold / 10000,
-                affixes ? Acore::StringFormat(" - {}", AffixNames(affixes)) : std::string()), GOSSIP_SENDER_MAIN, A_TIER_BASE + n);
+                affixes ? Acore::StringFormat(" - {}", AffixNames(affixes)) : std::string()), GOSSIP_SENDER_MAIN, A_TIER_BASE + n,
+                TemucraftTeleportBox(player, Acore::StringFormat("{} ({})", expeditions.at(map).name, n)), 0, false);   // unless prompts are off
         }
         AddGossipItemFor(player, GOSSIP_ICON_CHAT, Text(player, S_BACK, "Back"), GOSSIP_SENDER_MAIN, A_LIST_BASE + expeditions.at(map).category * 100);
         SendGossipMenuFor(player, TEXT_KEEPER, keeper->GetGUID());
@@ -1646,7 +1648,7 @@ namespace
             {
                 if (LairUnlocked(player, n))
                     AddGossipItemFor(player, GOSSIP_ICON_BATTLE, Acore::StringFormat(Text(player, S_LAIR_LINE, "{}'s Lair - tier {}"), NemesisName(), HiddenTierName(n)),
-                        GOSSIP_SENDER_MAIN, A_LAIR_BASE + n);
+                        GOSSIP_SENDER_MAIN, A_LAIR_BASE + n, TemucraftTeleportBox(player, Acore::StringFormat(Text(player, S_LAIR_LINE, "{}'s Lair - tier {}"), NemesisName(), HiddenTierName(n))), 0, false);
                 else if (n == 1)
                     AddGossipItemFor(player, GOSSIP_ICON_CHAT, Acore::StringFormat(Text(player, S_LAIR_LOCKED, "{}'s Lair - tier ?: finish tier {} of any expedition first"),
                         NemesisName(), cfg.lairUnlock), GOSSIP_SENDER_MAIN, A_NOOP);
@@ -1905,7 +1907,8 @@ namespace
             Run* run = RunFor(player);
             if (run && run->done && !run->claimed.count(player->GetGUID().GetCounter()))
                 AddGossipItemFor(player, GOSSIP_ICON_MONEY_BAG, Text(player, S_OPEN, "Open the cache"), GOSSIP_SENDER_MAIN, 1);
-            AddGossipItemFor(player, GOSSIP_ICON_TAXI, Text(player, S_LEAVE, "Leave the expedition"), GOSSIP_SENDER_MAIN, 2);
+            AddGossipItemFor(player, GOSSIP_ICON_TAXI, Text(player, S_LEAVE, "Leave the expedition"), GOSSIP_SENDER_MAIN, 2,
+                TemucraftTeleportBox(player, TemucraftModuleText("mod-temucraft", player, 134, "where you were before the expedition")), 0, false);
             SendGossipMenuFor(player, TEXT_CACHE, go->GetGUID());
             return true;
         }
